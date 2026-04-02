@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local runtime data
+data.db
+logs/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

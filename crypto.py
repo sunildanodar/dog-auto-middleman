@@ -141,11 +141,9 @@ def detect_ltc_payment(address, amount_usd):
 
 def send_ltc(to_address, amount, priv_key):
     priv = decrypt_key(priv_key)
-    fee = amount * 0.02
-    payout = max(amount - fee, 0)
-    value_satoshis = int(payout * 1e8)
+    value_satoshis = int(amount * 1e8)
     if value_satoshis <= 0:
-        return {"error": "Payout amount is too small after fee."}
+        return {"error": "Payout amount must be greater than zero."}
 
     from_address = private_hex_to_ltc_address(priv)
 

@@ -934,9 +934,7 @@ async def panel(ctx):
             "- Read and accept ToS before creating deals.\n"
             "- Only use controls shown by the bot.\n\n"
             "**FEES**\n"
-            "- Deals $250+: $1.50\n"
-            "- Deals under $250: $0.50\n"
-            "- Deals under $50: FREE\n\n"
+            "- No service fee. Seller receives full deal amount.\n\n"
             "Use the button below to open a ticket."
         ),
         color=0x111827

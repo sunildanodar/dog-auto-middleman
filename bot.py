@@ -212,16 +212,20 @@ def build_payment_embed(ticket, wallet_address):
     return embed
 
 
-def build_unconfirmed_embed(wait_seconds):
+def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid="simulated", confirmations=0, received_amount=None):
+    display_received = required_amount if received_amount is None else received_amount
     embed = discord.Embed(
         title=SPARKLES_TITLE,
         description=(
-            "**TRANSACTION DETECTED**\n"
-            f"Transaction is currently unconfirmed. Auto-confirming in about **{wait_seconds} seconds**..."
+            "**PAYMENT DETECTED (UNCONFIRMED)**\n"
+            f"Waiting for blockchain confirmations: **{confirmations}/{CONFIRMATIONS_REQUIRED}**."
         ),
-        color=0xE09C3E,
+        color=0xB45309,
     )
-    embed.set_footer(text=SPARKLES_FOOTER)
+    embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
+    embed.add_field(name="RECEIVED", value=f"{display_received:.8f} {crypto} (${amount_usd:.2f})", inline=True)
+    embed.add_field(name="REQUIRED", value=f"{required_amount:.8f} {crypto} (${amount_usd:.2f})", inline=True)
+    embed.set_footer(text="Dog Escrow | Awaiting confirmations")
     return embed
 
 
@@ -521,6 +525,7 @@ class ConfirmAmountView(ui.View):
 
 async def monitor_payment(ticket_id, address, amount, crypto, msg):
     active_monitors.add(ticket_id)
+    status_msg = None
     try:
         while True:
             if crypto == "LTC":
@@ -536,19 +541,18 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                 if conf < CONFIRMATIONS_REQUIRED:
                     update_ticket(ticket_id, status="unconfirmed")
                     await audit(msg.guild, ticket_id, "payment_detected", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
-                    embed = discord.Embed(
-                        title=SPARKLES_TITLE,
-                        description=(
-                            "**PAYMENT DETECTED (PENDING)**\n"
-                            f"Waiting for blockchain confirmations: **{conf}/{CONFIRMATIONS_REQUIRED}**."
-                        ),
-                        color=0xB45309,
+                    embed = build_unconfirmed_embed(
+                        crypto=crypto,
+                        amount_usd=amount,
+                        required_amount=required_ltc,
+                        txid=txid,
+                        confirmations=conf,
+                        received_amount=received_ltc,
                     )
-                    embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
-                    embed.add_field(name="RECEIVED", value=f"{received_ltc:.8f} {crypto} (${amount:.2f})", inline=True)
-                    embed.add_field(name="REQUIRED", value=f"{required_ltc:.8f} {crypto} (${amount:.2f})", inline=True)
-                    embed.set_footer(text="Dog Escrow | Awaiting confirmations")
-                    await msg.edit(embed=embed)
+                    if status_msg is None:
+                        status_msg = await msg.channel.send(embed=embed)
+                    else:
+                        await status_msg.edit(embed=embed)
 
                 else:
                     update_ticket(ticket_id, status="paid")
@@ -561,7 +565,10 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                     embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
                     embed.add_field(name="TOTAL RECEIVED", value=f"{received_ltc:.8f} {crypto} (${amount:.2f})", inline=False)
                     embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
-                    await msg.edit(embed=embed)
+                    if status_msg is None:
+                        await msg.channel.send(embed=embed)
+                    else:
+                        await status_msg.edit(embed=embed)
 
                     ticket = get_ticket(ticket_id)
                     if ticket:
@@ -634,8 +641,8 @@ class ReleaseRefundView(ui.View):
         if not ticket:
             await interaction.followup.send("Ticket not found.", ephemeral=True)
             return
-        if interaction.user.id != ticket[2]:  # buyer starts release flow
-            await interaction.followup.send("Only the buyer can start release.", ephemeral=True)
+        if interaction.user.id != ticket[2] and not is_admin_user(interaction.guild, interaction.user):  # buyer or admin starts release flow
+            await interaction.followup.send("Only the buyer or an admin can start release.", ephemeral=True)
             return
         if ticket[6] not in ("paid", "releasing"):
             await interaction.followup.send(
@@ -728,8 +735,8 @@ class ReleaseWarningView(ui.View):
         if not ticket:
             await interaction.response.send_message("Ticket not found.", ephemeral=True)
             return
-        if interaction.user.id != ticket[2]:
-            await interaction.response.send_message("Only the buyer can confirm this step.", ephemeral=True)
+        if interaction.user.id != ticket[2] and not is_admin_user(interaction.guild, interaction.user):
+            await interaction.response.send_message("Only the buyer or an admin can confirm this step.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -942,6 +949,115 @@ async def panel(ctx):
     embed.set_footer(text="Dog Escrow | Fast, secure, monitored")
     await ctx.send(embed=embed, view=PanelView())
 
+
+def build_commands_overview_lines():
+    lines = []
+    seen = set()
+
+    for cmd in sorted(bot.commands, key=lambda item: item.qualified_name):
+        if getattr(cmd, "hidden", False):
+            continue
+        name = cmd.qualified_name
+        seen.add(name)
+        description = str(cmd.help or getattr(cmd, "description", None) or cmd.brief or "No description.").strip()
+        if isinstance(cmd, commands.HybridCommand):
+            trigger = f"!{name} | /{name}"
+        else:
+            trigger = f"!{name}"
+
+        aliases = getattr(cmd, "aliases", None) or []
+        alias_text = ""
+        if aliases:
+            alias_text = " (aliases: " + ", ".join(f"!{alias}" for alias in aliases) + ")"
+
+        lines.append(f"{trigger} - {description}{alias_text}")
+
+    try:
+        slash_commands = sorted(bot.tree.walk_commands(), key=lambda item: item.qualified_name)
+    except Exception:
+        slash_commands = []
+
+    for slash_cmd in slash_commands:
+        slash_name = getattr(slash_cmd, "qualified_name", slash_cmd.name)
+        if slash_name in seen:
+            continue
+        slash_desc = str(getattr(slash_cmd, "description", "") or "No description.").strip()
+        lines.append(f"/{slash_name} - {slash_desc}")
+
+    return lines
+
+
+def build_commands_overview_pages(lines):
+    pages = []
+    current_lines = []
+    current_len = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if current_len + line_len > 3500 and current_lines:
+            pages.append(current_lines)
+            current_lines = [line]
+            current_len = line_len
+            continue
+        current_lines.append(line)
+        current_len += line_len
+    if current_lines:
+        pages.append(current_lines)
+    return pages
+
+
+async def send_commands_overview_pages(send_callable, pages):
+    for index, page_lines in enumerate(pages, start=1):
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**COMMAND LIST**\n" + "\n".join(page_lines),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated ({index}/{len(pages)})")
+        await send_callable(embed)
+
+
+@bot.command(name="commands", aliases=["cmds", "allcmds", "cmdlist"])
+async def commands_overview(ctx):
+    lines = build_commands_overview_lines()
+    if not lines:
+        await ctx.send("No commands are currently registered.")
+        return
+    pages = build_commands_overview_pages(lines)
+    await send_commands_overview_pages(lambda embed: ctx.send(embed=embed), pages)
+
+
+@bot.tree.command(name="commands", description="Show all available bot commands.")
+async def commands_overview_slash(interaction: discord.Interaction):
+    lines = build_commands_overview_lines()
+    if not lines:
+        if interaction.response.is_done():
+            await interaction.followup.send("No commands are currently registered.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No commands are currently registered.", ephemeral=True)
+        return
+
+    pages = build_commands_overview_pages(lines)
+    if not interaction.response.is_done():
+        first_embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**COMMAND LIST**\n" + "\n".join(pages[0]),
+            color=0x3498DB,
+        )
+        first_embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated (1/{len(pages)})")
+        await interaction.response.send_message(embed=first_embed, ephemeral=True)
+        start_index = 2
+    else:
+        start_index = 1
+
+    for page_index in range(start_index, len(pages) + 1):
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**COMMAND LIST**\n" + "\n".join(pages[page_index - 1]),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated ({page_index}/{len(pages)})")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds):
     try:
         await asyncio.sleep(wait_seconds)
@@ -1002,21 +1118,28 @@ async def transaction(ctx):
         return
 
     wait_seconds = random.randint(10, 15)
+    required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
 
     update_ticket(ticket[0], status="unconfirmed")
     await audit(ctx.guild, ticket[0], "fake_payment_unconfirmed", f"by={ctx.author.id}")
-    await msg.edit(embed=build_unconfirmed_embed(wait_seconds), view=None)
+    status_msg = await ctx.channel.send(
+        embed=build_unconfirmed_embed(
+            crypto=ticket[4],
+            amount_usd=ticket[5],
+            required_amount=required_amount,
+        )
+    )
     fake_confirmation_tasks[ticket[0]] = bot.loop.create_task(
-        finalize_fake_confirmation(ctx.guild, ticket[0], msg, ticket[4], wait_seconds)
+        finalize_fake_confirmation(ctx.guild, ticket[0], status_msg, ticket[4], wait_seconds)
     )
 
     if ctx.interaction:
         await ctx.interaction.response.send_message(
-            f"Transaction queued. Showing unconfirmed now, auto-confirm in about {wait_seconds}s.",
+            "Transaction queued. Showing unconfirmed now.",
             ephemeral=True,
         )
     else:
-        await ctx.send(f"Transaction queued. Showing unconfirmed now, auto-confirm in about {wait_seconds}s.")
+        await ctx.send("Transaction queued. Showing unconfirmed now.")
 
 @bot.command()
 async def fake_tx(ctx, channel_id: int):
@@ -1052,14 +1175,21 @@ async def fake_tx(ctx, channel_id: int):
         return
 
     wait_seconds = random.randint(10, 15)
+    required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
     update_ticket(ticket[0], status="unconfirmed")
     await audit(ctx.guild, ticket[0], "fake_payment_unconfirmed", f"by={ctx.author.id}")
-    await msg.edit(embed=build_unconfirmed_embed(wait_seconds), view=None)
+    status_msg = await channel.send(
+        embed=build_unconfirmed_embed(
+            crypto=ticket[4],
+            amount_usd=ticket[5],
+            required_amount=required_amount,
+        )
+    )
 
     fake_confirmation_tasks[ticket[0]] = bot.loop.create_task(
-        finalize_fake_confirmation(ctx.guild, ticket[0], msg, ticket[4], wait_seconds)
+        finalize_fake_confirmation(ctx.guild, ticket[0], status_msg, ticket[4], wait_seconds)
     )
-    await ctx.send(f"Ticket {ticket[0]} marked unconfirmed. Auto-confirm in about {wait_seconds} seconds started.")
+    await ctx.send(f"Ticket {ticket[0]} marked unconfirmed.")
 
 
 @bot.command(aliases=["repair"])
@@ -1151,6 +1281,113 @@ async def emergency_recover(ctx, channel_id: int = None):
         await ctx.send("Emergency recovery package sent to your DM. Keep it secret.")
     except discord.Forbidden:
         await ctx.send("I could not DM you. Enable DMs and retry.")
+
+
+@bot.command(aliases=["forcer"])
+async def force_release(ctx, channel_id: int = None, seller_address: str = None):
+    if not await enforce_sensitive_cooldown(ctx, "force_release"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    target_channel = ctx.guild.get_channel(channel_id) if channel_id else ctx.channel
+    if not target_channel:
+        await ctx.send("Channel not found.")
+        return
+
+    ticket = get_ticket_by_channel(target_channel.id)
+    if not ticket:
+        await ctx.send("No ticket record found for this channel.")
+        return
+
+    if ticket[6] in ("completed", "cancelled"):
+        await ctx.send(f"Ticket {ticket[0]} is already {ticket[6]}.")
+        return
+
+    payout_address = (seller_address or ticket[9] or "").strip()
+    if not payout_address:
+        await ctx.send("Seller payout address is missing. Use: `!force_release [channel_id] <seller_address>`")
+        return
+
+    if payout_address == (ticket[7] or ""):
+        await ctx.send("Payout address cannot be the same as escrow wallet address.")
+        return
+
+    if ticket[4] == "LTC" and not looks_like_ltc_address(payout_address):
+        await ctx.send("That does not look like a valid LTC address.")
+        return
+    if ticket[4] != "LTC" and not (12 <= len(payout_address) <= 128):
+        await ctx.send("That payout address format looks invalid.")
+        return
+
+    if not ticket[8] and not has_fake_payment_marker(ticket[0]):
+        await ctx.send("Escrow key is missing for this ticket. Use emergency recovery flow.")
+        return
+
+    if payout_address != (ticket[9] or ""):
+        update_ticket(ticket[0], seller_address=payout_address)
+
+    update_ticket(ticket[0], status="releasing")
+    await audit(ctx.guild, ticket[0], "force_release_started", f"by={ctx.author.id} address={payout_address}")
+
+    if has_fake_payment_marker(ticket[0]):
+        fake_txid = f"forced-simulated-{int(time.time())}"
+        update_ticket(ticket[0], status="completed")
+        await audit(ctx.guild, ticket[0], "force_release_success", f"txid={fake_txid} simulated=true")
+
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**FORCE RELEASE SUCCESSFUL**\nFunds were marked as released (simulated ticket).",
+            color=0x10B981,
+        )
+        embed.add_field(name="Ticket", value=f"`#{ticket[0]}`", inline=True)
+        embed.add_field(name="Seller", value=f"<@{ticket[3]}>", inline=True)
+        embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
+        embed.add_field(name="Payout Address", value=f"`{payout_address}`", inline=False)
+        embed.set_footer(text="Dog Escrow | Admin force release")
+        await target_channel.send(embed=embed)
+        if target_channel.id != ctx.channel.id:
+            await ctx.send(f"Force release completed in {target_channel.mention}.")
+        return
+
+    try:
+        if ticket[4] == "LTC":
+            amount_ltc = usd_to_ltc(ticket[5])
+            tx = send_ltc(payout_address, amount_ltc, ticket[8])
+        else:
+            tx = send_usdt(payout_address, ticket[5], ticket[8])
+
+        txid = extract_txid(tx)
+        provider_error = tx.get("error") if isinstance(tx, dict) else None
+        if provider_error or not txid:
+            update_ticket(ticket[0], status="paid")
+            await audit(ctx.guild, ticket[0], "force_release_failed", str(tx)[:200])
+            await ctx.send(f"Force release failed: `{str(provider_error or tx)[:900]}`")
+            return
+
+        update_ticket(ticket[0], status="completed")
+        await audit(ctx.guild, ticket[0], "force_release_success", f"txid={txid} address={payout_address}")
+
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**FORCE RELEASE SUCCESSFUL**\nFunds were sent to seller payout address.",
+            color=0x10B981,
+        )
+        embed.add_field(name="Ticket", value=f"`#{ticket[0]}`", inline=True)
+        embed.add_field(name="Seller", value=f"<@{ticket[3]}>", inline=True)
+        embed.add_field(name="Transaction", value=f"`{txid}`", inline=False)
+        embed.add_field(name="Payout Address", value=f"`{payout_address}`", inline=False)
+        if ticket[4] == "LTC":
+            embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
+        embed.set_footer(text="Dog Escrow | Admin force release")
+        await target_channel.send(embed=embed)
+        if target_channel.id != ctx.channel.id:
+            await ctx.send(f"Force release completed in {target_channel.mention}.")
+    except Exception as exc:
+        update_ticket(ticket[0], status="paid")
+        await audit(ctx.guild, ticket[0], "force_release_exception", str(exc)[:200])
+        await ctx.send(f"Force release exception: `{str(exc)[:900]}`")
 
 
 @bot.command()

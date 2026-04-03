@@ -52,6 +52,28 @@ def looks_like_ltc_address(address):
     return address.startswith(prefixes) and 26 <= len(address) <= 90
 
 
+def looks_like_evm_address(address):
+    if not address:
+        return False
+    return bool(re.fullmatch(r"0x[a-fA-F0-9]{40}", address.strip()))
+
+
+def usdt_network_from_asset(asset):
+    value = str(asset or "").upper().strip()
+    if value in ("USDT_ETH", "USDT-ETH", "USDT_ETHEREUM"):
+        return "ETH"
+    return "BEP20"
+
+
+def asset_label(asset):
+    value = str(asset or "").upper().strip()
+    if value == "USDT_ETH":
+        return "USDT [ETH]"
+    if value == "USDT_BEP20":
+        return "USDT [BEP-20]"
+    return value or "UNKNOWN"
+
+
 async def audit(guild, ticket_id, event, details=""):
     log_event(ticket_id, event, details)
     if guild is not None:
@@ -155,7 +177,7 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
                 amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
                 tx = send_ltc(ticket[9], amount_ltc, ticket[8])
             else:
-                tx = send_usdt(ticket[9], ticket[5], ticket[8])
+                tx = send_usdt(ticket[9], ticket[5], ticket[8], network=usdt_network_from_asset(crypto))
 
             txid = extract_txid(tx)
             provider_error = tx.get("error") if isinstance(tx, dict) else None
@@ -215,7 +237,7 @@ def build_payment_embed(ticket, wallet_address):
     embed.add_field(name="DEAL ID", value=f"`{ticket[12] or 'pending'}`", inline=False)
     embed.add_field(name="DEAL DESCRIPTION", value=ticket[11] or "No description provided", inline=False)
     embed.add_field(name="PAY EXACTLY (USD)", value=f"**${ticket[5]:.2f}**", inline=True)
-    embed.add_field(name=f"PAY EXACTLY ({ticket[4]})", value=f"**{amount_ltc:.8f} {ticket[4]}**", inline=True)
+    embed.add_field(name=f"PAY EXACTLY ({asset_label(ticket[4])})", value=f"**{amount_ltc:.8f} {asset_label(ticket[4])}**", inline=True)
     embed.add_field(name="ESCROW WALLET", value=f"`{wallet_address}`", inline=False)
     embed.add_field(
         name="IMPORTANT",
@@ -255,7 +277,7 @@ async def panel_recently_posted(channel, lookback_seconds=12):
         embed = message.embeds[0]
         if embed.title != SPARKLES_TITLE:
             continue
-        if embed.description and "PREMIUM ESCROW PANEL" in embed.description:
+        if embed.description and "AUTO MIDDLEMAN PANEL" in embed.description:
             return True
     return False
 
@@ -617,9 +639,7 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                     update_ticket(ticket_id, locked_amount_crypto=required_ltc)
                 paid, conf, txid, received_ltc = detect_ltc_payment(address, amount, required_ltc=required_ltc)
             else:
-                paid, conf = detect_usdt_payment(address, amount)
-                txid = None
-                received_ltc = amount
+                paid, conf, txid, received_ltc = detect_usdt_payment(address, amount, network=usdt_network_from_asset(crypto))
                 required_ltc = amount
 
             if paid:
@@ -795,8 +815,8 @@ class ReleaseModal(ui.Modal, title="Enter Seller Address"):
         if self.crypto == "LTC" and not looks_like_ltc_address(seller_address):
             await interaction.response.send_message("That does not look like a valid LTC address.", ephemeral=True)
             return
-        if self.crypto != "LTC" and not (12 <= len(seller_address) <= 128):
-            await interaction.response.send_message("That payout address format looks invalid.", ephemeral=True)
+        if self.crypto != "LTC" and not looks_like_evm_address(seller_address):
+            await interaction.response.send_message("That does not look like a valid EVM address.", ephemeral=True)
             return
         update_ticket(self.ticket_id, seller_address=seller_address)
         await audit(interaction.guild, self.ticket_id, "seller_address_submitted", f"seller={interaction.user.id} address={seller_address}")
@@ -844,6 +864,8 @@ class SellerAddressEntryView(ui.View):
         super().__init__(timeout=None)
         self.ticket_id = ticket_id
         self.crypto = crypto
+        if self.children:
+            self.children[0].label = "Enter Your LTC Address" if crypto == "LTC" else "Enter Your USDT Address"
 
     @ui.button(label="Enter Your LTC Address", style=discord.ButtonStyle.primary, emoji="📥")
     async def enter_address(self, interaction, button):
@@ -936,7 +958,7 @@ class ReleaseConfirmView(ui.View):
                 amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
                 tx = send_ltc(ticket[9], amount_ltc, ticket[8])
             else:
-                tx = send_usdt(ticket[9], ticket[5], ticket[8])
+                tx = send_usdt(ticket[9], ticket[5], ticket[8], network=usdt_network_from_asset(self.crypto))
 
             txid = extract_txid(tx)
             provider_error = tx.get("error") if isinstance(tx, dict) else None
@@ -1001,17 +1023,31 @@ class ReleaseConfirmView(ui.View):
     async def back(self, interaction, button):
         await interaction.response.send_message("Withdrawal cancelled.", ephemeral=True)
 
-class PanelView(ui.View):
+class RequestLTCView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, emoji="🪙")
+    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, emoji="🪙", custom_id="panel_request_ltc")
     async def ltc(self, interaction, button):
         await interaction.response.send_modal(RequestModal("LTC"))
 
-    # @ui.button(label="Request USDT", style=discord.ButtonStyle.secondary, emoji="💎")
-    # async def usdt(self, interaction, button):
-    #     await interaction.response.send_modal(RequestModal("USDT"))
+
+class RequestUSDTBEP20View(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, emoji="💎", custom_id="panel_request_usdt_bep20")
+    async def usdt_bep20(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("USDT_BEP20"))
+
+
+class RequestUSDTETHView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="Request USDT [ETH]", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="panel_request_usdt_eth")
+    async def usdt_eth(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("USDT_ETH"))
 
 
 @bot.command()
@@ -1020,21 +1056,44 @@ async def panel(ctx):
     if await panel_recently_posted(ctx.channel):
         return
 
-    embed = discord.Embed(
+    main_embed = discord.Embed(
         title=SPARKLES_TITLE,
         description=(
-            "**PREMIUM ESCROW PANEL**\n\n"
-            "**PAID SERVICE**\n"
+            "**AUTO MIDDLEMAN PANEL**\n\n"
+            "**FREE SERVICE**\n"
             "- Read and accept ToS before creating deals.\n"
-            "- Only use controls shown by the bot.\n\n"
-            "**FEES**\n"
-            "- No service fee. Seller receives full deal amount.\n\n"
-            "Use the button below to open a ticket."
+            "- Only use controls shown by the bot.\n"
+            "- Buyer and seller must both confirm ticket details."
         ),
         color=0x111827
     )
-    embed.set_footer(text="Dog Escrow | Fast, secure, monitored")
-    await ctx.send(embed=embed, view=PanelView())
+    main_embed.set_footer(text="Dog Escrow | Fast, secure, monitored")
+
+    ltc_embed = discord.Embed(
+        title="Request Litecoin",
+        description="• Network: LTC\n• Use this for Litecoin middleman deals.",
+        color=0x5865F2,
+    )
+    ltc_embed.set_footer(text=SPARKLES_FOOTER)
+
+    usdt_bep20_embed = discord.Embed(
+        title="Request USDT [BEP-20]",
+        description="• Network: BSC (BEP-20)\n• Use this for USDT on BNB Smart Chain.",
+        color=0x10B981,
+    )
+    usdt_bep20_embed.set_footer(text=SPARKLES_FOOTER)
+
+    usdt_eth_embed = discord.Embed(
+        title="Request USDT [ETH]",
+        description="• Network: Ethereum (ERC-20)\n• Use this for USDT on Ethereum.",
+        color=0x3B82F6,
+    )
+    usdt_eth_embed.set_footer(text=SPARKLES_FOOTER)
+
+    await ctx.send(embed=main_embed)
+    await ctx.send(embed=ltc_embed, view=RequestLTCView())
+    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
+    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 
 
 def build_commands_overview_lines():
@@ -1409,8 +1468,8 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
     if ticket[4] == "LTC" and not looks_like_ltc_address(payout_address):
         await ctx.send("That does not look like a valid LTC address.")
         return
-    if ticket[4] != "LTC" and not (12 <= len(payout_address) <= 128):
-        await ctx.send("That payout address format looks invalid.")
+    if ticket[4] != "LTC" and not looks_like_evm_address(payout_address):
+        await ctx.send("That does not look like a valid EVM address.")
         return
 
     if not ticket[8] and not has_fake_payment_marker(ticket[0]):
@@ -1448,7 +1507,7 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
             amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
             tx = send_ltc(payout_address, amount_ltc, ticket[8])
         else:
-            tx = send_usdt(payout_address, ticket[5], ticket[8])
+            tx = send_usdt(payout_address, ticket[5], ticket[8], network=usdt_network_from_asset(ticket[4]))
 
         txid = extract_txid(tx)
         provider_error = tx.get("error") if isinstance(tx, dict) else None
@@ -1659,6 +1718,9 @@ async def on_ready():
     if not payment_view_registered:
         try:
             bot.add_view(PaymentDetailsView())
+            bot.add_view(RequestLTCView())
+            bot.add_view(RequestUSDTBEP20View())
+            bot.add_view(RequestUSDTETHView())
             payment_view_registered = True
         except Exception as exc:
             print(f"Persistent view registration failed: {exc}")

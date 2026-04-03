@@ -41,6 +41,8 @@ DB_NAME = os.getenv("DB_NAME", "data.db")
 # BEP20 settings
 BSC_RPC_URL = os.getenv("BSC_RPC_URL", "https://bsc-dataseed.binance.org/")
 USDT_CONTRACT_ADDRESS = os.getenv("USDT_CONTRACT_ADDRESS", "0x55d398326f99059fF775485246999027B3197955")
+ETH_RPC_URL = os.getenv("ETH_RPC_URL", "https://rpc.ankr.com/eth")
+USDT_ETH_CONTRACT_ADDRESS = os.getenv("USDT_ETH_CONTRACT_ADDRESS", "0xdAC17F958D2ee523a2206206994597C13D831ec7")
 
 # Encryption
 ENCRYPTION_KEY = _env_required("ENCRYPTION_KEY").encode()

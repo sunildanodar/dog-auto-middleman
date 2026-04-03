@@ -1,5 +1,5 @@
 import requests
-from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIRMATIONS_REQUIRED, BSC_RPC_URL, USDT_CONTRACT_ADDRESS, ENCRYPTION_KEY
+from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIRMATIONS_REQUIRED, BSC_RPC_URL, USDT_CONTRACT_ADDRESS, ETH_RPC_URL, USDT_ETH_CONTRACT_ADDRESS, ENCRYPTION_KEY
 from web3 import Web3
 from cryptography.fernet import Fernet
 import secrets, hashlib, base58, ecdsa, json
@@ -256,28 +256,68 @@ def sweep_ltc_to_master(priv_key):
         return {"error": f"Network error while sweeping LTC: {exc}"}
     return _safe_json_or_error(response)
 
-# BEP20 USDT functions
-w3 = Web3(Web3.HTTPProvider(BSC_RPC_URL))
+# EVM USDT functions (BSC + ETH)
+w3_bsc = Web3(Web3.HTTPProvider(BSC_RPC_URL))
+w3_eth = Web3(Web3.HTTPProvider(ETH_RPC_URL))
+
+
+def _network_key(network):
+    value = (network or "BEP20").upper().strip()
+    if value in ("ETH", "ERC20", "ETHEREUM"):
+        return "ETH"
+    return "BEP20"
+
+
+def _network_client_and_contract(network):
+    key = _network_key(network)
+    if key == "ETH":
+        return w3_eth, USDT_ETH_CONTRACT_ADDRESS, 6
+    return w3_bsc, USDT_CONTRACT_ADDRESS, 18
 
 def generate_bep20_wallet():
-    account = w3.eth.account.create()
+    account = w3_bsc.eth.account.create()
     return {"address": account.address, "private": encrypt_key(account.key.hex())}
 
-def detect_usdt_payment(address, amount):
-    # Simplified: check balance
-    contract = w3.eth.contract(address=Web3.to_checksum_address(USDT_CONTRACT_ADDRESS), abi=[{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}])
+def detect_usdt_payment(address, amount, network="BEP20"):
+    w3, contract_address, decimals = _network_client_and_contract(network)
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}])
     balance = contract.functions.balanceOf(Web3.to_checksum_address(address)).call()
-    usdt_balance = balance / 10**18  # USDT has 18 decimals
+    usdt_balance = balance / (10 ** decimals)
+    confirmations = 0
+    txid = None
+    try:
+        latest_block = w3.eth.block_number
+        from_block = max(latest_block - 5000, 0)
+        transfer_topic = w3.keccak(text="Transfer(address,address,uint256)").hex()
+        padded_address = "0x" + "0" * 24 + Web3.to_checksum_address(address)[2:].lower()
+        logs = w3.eth.get_logs({
+            "fromBlock": from_block,
+            "toBlock": latest_block,
+            "address": Web3.to_checksum_address(contract_address),
+            "topics": [transfer_topic, None, padded_address],
+        })
+        if logs:
+            latest_log = max(logs, key=lambda item: (item.get("blockNumber", 0), item.get("logIndex", 0)))
+            tx_hash = latest_log.get("transactionHash")
+            txid = tx_hash.hex() if tx_hash else None
+            log_block = latest_log.get("blockNumber", 0) or 0
+            if log_block > 0 and latest_block >= log_block:
+                confirmations = (latest_block - log_block) + 1
+    except Exception:
+        txid = None
+        confirmations = 0
     if usdt_balance >= amount:
-        # For simplicity, assume confirmed if balance >= amount
-        return True, 1  # Assume 1 confirmation for now
-    return False, 0
+        if confirmations <= 0:
+            confirmations = 1
+        return True, confirmations, txid, usdt_balance
+    return False, confirmations, txid, usdt_balance
 
-def send_usdt(to_address, amount, priv_key):
+def send_usdt(to_address, amount, priv_key, network="BEP20"):
+    w3, contract_address, decimals = _network_client_and_contract(network)
     priv = decrypt_key(priv_key)
     account = w3.eth.account.from_key(priv)
-    contract = w3.eth.contract(address=Web3.to_checksum_address(USDT_CONTRACT_ADDRESS), abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}])
-    tx = contract.functions.transfer(Web3.to_checksum_address(to_address), int(amount * 10**18)).build_transaction({
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}])
+    tx = contract.functions.transfer(Web3.to_checksum_address(to_address), int(amount * (10 ** decimals))).build_transaction({
         'from': account.address,
         'gas': 200000,
         'gasPrice': w3.eth.gas_price,
@@ -287,11 +327,12 @@ def send_usdt(to_address, amount, priv_key):
     tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
     return tx_hash.hex()
 
-def sweep_usdt_to_master(priv_key):
+def sweep_usdt_to_master(priv_key, network="BEP20"):
     # Similar to send, but to master
+    w3, contract_address, _decimals = _network_client_and_contract(network)
     priv = decrypt_key(priv_key)
     account = w3.eth.account.from_key(priv)
-    contract = w3.eth.contract(address=Web3.to_checksum_address(USDT_CONTRACT_ADDRESS), abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}])
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}])
     balance = contract.functions.balanceOf(account.address).call()
     if balance > 0:
         tx = contract.functions.transfer(Web3.to_checksum_address(MASTER_ADDRESS), balance).build_transaction({

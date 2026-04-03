@@ -10,7 +10,7 @@ import secrets
 import requests
 from discord.ext import commands
 from discord import ui
-from config import TOKEN, LOG_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN
+from config import TOKEN, LOG_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION
 from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
 from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain
 
@@ -43,6 +43,18 @@ def log(guild, msg):
 
 def is_admin_user(guild, user):
     return user.id == ADMIN_ID or (guild is not None and user.id == guild.owner_id)
+
+
+@bot.command(name='version', help='Check which code version is running')
+async def version_check(ctx):
+    """Instantly show current code version to verify Railway deployment"""
+    embed = discord.Embed(
+        title="🔍 Code Version Running",
+        description=f"```\n{CODE_VERSION}\n```",
+        color=0x2ecc71
+    )
+    embed.set_footer(text="Use this to verify Railway has deployed the latest code")
+    await ctx.send(embed=embed)
 
 
 def looks_like_ltc_address(address):

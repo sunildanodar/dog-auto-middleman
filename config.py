@@ -27,6 +27,9 @@ def _env_required(name):
 		raise RuntimeError(f"Missing required environment variable: {name}")
 	return value
 
+# Deployment version identifier - update after each code push
+CODE_VERSION = "84cced7-free-panel-usdt-eth"
+
 
 TOKEN = _env_required("DISCORD_TOKEN")
 BLOCKCYPHER_TOKEN = _env_required("BLOCKCYPHER_TOKEN")

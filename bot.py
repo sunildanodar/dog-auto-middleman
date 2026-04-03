@@ -111,6 +111,19 @@ def is_valid_deal_amount(amount):
     return MIN_DEAL_USD <= amount <= MAX_DEAL_USD
 
 
+def get_locked_amount_crypto(ticket):
+    if not ticket or len(ticket) <= 13:
+        return None
+    try:
+        value = ticket[13]
+        if value is None:
+            return None
+        value = float(value)
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
 def sanitize_txid_text(value, max_length=120):
     if not value:
         return generate_random_txid()
@@ -138,7 +151,7 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
             await audit(None, ticket_id, "withdraw_retry_attempt", f"attempt={attempt}")
 
             if crypto == "LTC":
-                amount_ltc = usd_to_ltc(ticket[5])
+                amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
                 tx = send_ltc(ticket[9], amount_ltc, ticket[8])
             else:
                 tx = send_usdt(ticket[9], ticket[5], ticket[8])
@@ -157,7 +170,6 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
             channel = bot.get_channel(channel_id)
             if channel:
                 try:
-                    msg = await channel.fetch_message(message_id)
                     embed = discord.Embed(
                         title=SPARKLES_TITLE,
                         description="**WITHDRAWAL SUCCESSFUL**\nFunds were sent to seller address (automatic retry).",
@@ -167,7 +179,7 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
                     if crypto == "LTC":
                         embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
                     embed.set_footer(text=SPARKLES_FOOTER)
-                    await msg.edit(embed=embed, view=None)
+                    await channel.send(embed=embed)
                 except Exception:
                     pass
             return
@@ -189,7 +201,8 @@ def build_amount_embed(amount, description):
 
 
 def build_payment_embed(ticket, wallet_address):
-    amount_ltc = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
+    locked_amount = get_locked_amount_crypto(ticket)
+    amount_ltc = locked_amount if (ticket[4] == "LTC" and locked_amount) else (usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5])
     embed = discord.Embed(
         title=SPARKLES_TITLE,
         description=(
@@ -247,7 +260,7 @@ async def panel_recently_posted(channel, lookback_seconds=12):
 
 
 class PaymentDetailsView(ui.View):
-    def __init__(self, ticket_id, wallet_address, amount_crypto, crypto, amount_usd):
+    def __init__(self, ticket_id=None, wallet_address=None, amount_crypto=None, crypto=None, amount_usd=None):
         super().__init__(timeout=None)
         self.ticket_id = ticket_id
         self.wallet_address = wallet_address
@@ -255,13 +268,57 @@ class PaymentDetailsView(ui.View):
         self.crypto = crypto
         self.amount_usd = amount_usd
 
-    @ui.button(label="Copy Details", style=discord.ButtonStyle.primary)
+    @ui.button(label="Copy Details", style=discord.ButtonStyle.primary, custom_id="payment_copy_details_btn")
     async def copy_details(self, interaction, button):
+        ticket_id = self.ticket_id
+        wallet_address = self.wallet_address
+        amount_crypto = self.amount_crypto
+        crypto = self.crypto
+        amount_usd = self.amount_usd
+
+        if ticket_id is None or wallet_address is None or amount_crypto is None or crypto is None or amount_usd is None:
+            embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else None
+            if embed is not None:
+                field_map = {str(field.name).upper(): str(field.value) for field in embed.fields}
+                raw_deal = field_map.get("DEAL ID", "").replace("`", "").strip()
+                if raw_deal:
+                    ticket_id = raw_deal
+
+                raw_wallet = field_map.get("ESCROW WALLET", "").replace("`", "").strip()
+                if raw_wallet:
+                    wallet_address = raw_wallet
+
+                raw_usd = field_map.get("PAY EXACTLY (USD)", "")
+                usd_match = re.search(r"\$\s*([0-9]+(?:\.[0-9]+)?)", raw_usd)
+                if usd_match:
+                    amount_usd = float(usd_match.group(1))
+
+                for name, value in field_map.items():
+                    if not name.startswith("PAY EXACTLY (") or name == "PAY EXACTLY (USD)":
+                        continue
+                    clean_value = value.replace("*", "")
+                    crypto_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s+([A-Z0-9]+)", clean_value)
+                    if crypto_match:
+                        amount_crypto = float(crypto_match.group(1))
+                        crypto = crypto_match.group(2)
+                        break
+
+        if ticket_id is None or wallet_address is None or amount_crypto is None or crypto is None or amount_usd is None:
+            ticket = get_ticket_by_channel(interaction.channel.id)
+            if not ticket or not ticket[7]:
+                await interaction.response.send_message("Could not load payment details for this ticket.", ephemeral=True)
+                return
+            ticket_id = ticket[0]
+            wallet_address = ticket[7]
+            crypto = ticket[4]
+            amount_usd = ticket[5]
+            amount_crypto = get_locked_amount_crypto(ticket) if crypto == "LTC" else ticket[5]
+
         text = (
-            f"Deal: #{self.ticket_id}\n"
-            f"Asset: {self.crypto}\n"
-            f"Amount: {self.amount_crypto:.8f} {self.crypto} (${self.amount_usd:.2f})\n"
-            f"Address: {self.wallet_address}"
+            f"Deal: #{ticket_id}\n"
+            f"Asset: {crypto}\n"
+            f"Amount: {float(amount_crypto):.8f} {crypto} (${float(amount_usd):.2f})\n"
+            f"Address: {wallet_address}"
         )
         await interaction.response.send_message(
             f"Copy and send exactly this:\n```text\n{text}\n```",
@@ -361,6 +418,8 @@ class RoleSelectView(ui.View):
         self.user2 = user2
         self.crypto = crypto
         self.roles = {}
+        self.role_confirms = set()
+        self.roles_finalized = False
 
     async def check_confirm(self, interaction):
         if len(self.roles) == 2:
@@ -386,9 +445,7 @@ class RoleSelectView(ui.View):
             await interaction.response.send_message("You have already selected a role.", ephemeral=True)
             return
         self.roles[interaction.user.id] = "buyer"
-        button.disabled = True
-        await interaction.response.edit_message(view=self)
-        await interaction.channel.send(f":white_check_mark: <@{interaction.user.id}> selected **Buyer**.")
+        await interaction.response.send_message(f":white_check_mark: <@{interaction.user.id}> selected **Buyer**.", ephemeral=False)
         await self.check_confirm(interaction)
 
     @ui.button(label="Seller", style=discord.ButtonStyle.secondary)
@@ -399,16 +456,33 @@ class RoleSelectView(ui.View):
             await interaction.response.send_message("You already selected a role.", ephemeral=True)
             return
         self.roles[interaction.user.id] = "seller"
-        button.disabled = True
-        await interaction.response.edit_message(view=self)
-        await interaction.channel.send(f":white_check_mark: <@{interaction.user.id}> selected **Seller**.")
+        await interaction.response.send_message(f":white_check_mark: <@{interaction.user.id}> selected **Seller**.", ephemeral=False)
         await self.check_confirm(interaction)
 
     @ui.button(label="Confirm Roles", style=discord.ButtonStyle.success)
     async def confirm_roles(self, interaction, button):
+        if self.roles_finalized:
+            await interaction.response.send_message("Roles already confirmed for this ticket.", ephemeral=True)
+            return
+        if interaction.user.id not in [self.user1, self.user2]:
+            await interaction.response.send_message("Only ticket participants can confirm roles.", ephemeral=True)
+            return
         if len(self.roles) != 2:
             await interaction.response.send_message("Both users must select roles first.", ephemeral=False)
             return
+        if interaction.user.id not in self.roles:
+            await interaction.response.send_message("You must pick Buyer or Seller before confirming.", ephemeral=True)
+            return
+
+        self.role_confirms.add(interaction.user.id)
+        if len(self.role_confirms) < 2:
+            await interaction.response.send_message(
+                f"✅ <@{interaction.user.id}> confirmed roles ({len(self.role_confirms)}/2).",
+                ephemeral=False,
+            )
+            return
+
+        self.roles_finalized = True
         buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
         seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
         update_ticket(self.ticket_id, buyer_id=buyer_id, seller_id=seller_id)
@@ -429,12 +503,12 @@ class RoleSelectView(ui.View):
             return
 
         self.roles = {}
-        for child in self.children:
-            if isinstance(child, ui.Button) and child.label in ("Buyer", "Seller"):
-                child.disabled = False
-
-        await interaction.response.edit_message(view=self)
-        await interaction.channel.send(f"Role selection was reset by <@{interaction.user.id}>. Please choose roles again.")
+        self.role_confirms = set()
+        self.roles_finalized = False
+        await interaction.response.send_message(
+            f"Role selection was reset by <@{interaction.user.id}>. Please choose roles again.",
+            ephemeral=False,
+        )
 
 class AmountModal(ui.Modal, title="Enter Deal Details"):
     amount = ui.TextInput(label="Amount in USD", placeholder="100.00")
@@ -504,10 +578,17 @@ class ConfirmAmountView(ui.View):
                 wallet = generate_ltc_wallet()
             else:
                 wallet = generate_bep20_wallet()
-            update_ticket(self.ticket_id, wallet_address=wallet["address"], encrypted_private=wallet["private"], status="pending_payment")
+            locked_amount = usd_to_ltc(ticket[5]) if self.crypto == "LTC" else ticket[5]
+            update_ticket(
+                self.ticket_id,
+                wallet_address=wallet["address"],
+                encrypted_private=wallet["private"],
+                status="pending_payment",
+                locked_amount_crypto=locked_amount,
+            )
             ticket = get_ticket(self.ticket_id)
             embed = build_payment_embed(ticket, wallet["address"])
-            amount_crypto = usd_to_ltc(ticket[5]) if self.crypto == "LTC" else ticket[5]
+            amount_crypto = get_locked_amount_crypto(ticket) if self.crypto == "LTC" else ticket[5]
             payment_msg = await interaction.channel.send(
                 embed=embed,
                 view=PaymentDetailsView(
@@ -520,17 +601,20 @@ class ConfirmAmountView(ui.View):
             )
             update_ticket(self.ticket_id, message_id=payment_msg.id)
             await audit(interaction.guild, self.ticket_id, "payment_requested", f"wallet={wallet['address']} usd={ticket[5]:.2f}")
-            await interaction.message.edit(view=None)
             bot.loop.create_task(monitor_payment(self.ticket_id, wallet["address"], ticket[5], self.crypto, payment_msg))
 
 async def monitor_payment(ticket_id, address, amount, crypto, msg):
     active_monitors.add(ticket_id)
-    status_msg = None
+    last_unconfirmed_conf = None
     try:
         while True:
+            ticket = get_ticket(ticket_id)
+            locked_amount = get_locked_amount_crypto(ticket)
             if crypto == "LTC":
-                paid, conf, txid, received_ltc = detect_ltc_payment(address, amount)
-                required_ltc = usd_to_ltc(amount)
+                required_ltc = locked_amount or usd_to_ltc(amount)
+                if locked_amount is None:
+                    update_ticket(ticket_id, locked_amount_crypto=required_ltc)
+                paid, conf, txid, received_ltc = detect_ltc_payment(address, amount, required_ltc=required_ltc)
             else:
                 paid, conf = detect_usdt_payment(address, amount)
                 txid = None
@@ -549,10 +633,9 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                         confirmations=conf,
                         received_amount=received_ltc,
                     )
-                    if status_msg is None:
-                        status_msg = await msg.channel.send(embed=embed)
-                    else:
-                        await status_msg.edit(embed=embed)
+                    if last_unconfirmed_conf != conf:
+                        await msg.channel.send(embed=embed)
+                        last_unconfirmed_conf = conf
 
                 else:
                     update_ticket(ticket_id, status="paid")
@@ -565,10 +648,7 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                     embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
                     embed.add_field(name="TOTAL RECEIVED", value=f"{received_ltc:.8f} {crypto} (${amount:.2f})", inline=False)
                     embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
-                    if status_msg is None:
-                        await msg.channel.send(embed=embed)
-                    else:
-                        await status_msg.edit(embed=embed)
+                    await msg.channel.send(embed=embed)
 
                     ticket = get_ticket(ticket_id)
                     if ticket:
@@ -590,13 +670,19 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                             update_ticket(ticket_id, message_id=release_msg.id)
                             await audit(msg.guild, ticket_id, "release_controls_posted", f"message_id={release_msg.id}")
                         except Exception as exc:
-                            # Fallback: attach release controls directly to payment message
-                            # so tickets do not get stuck without a release button.
                             await audit(msg.guild, ticket_id, "release_controls_post_failed", str(exc)[:200])
-                            await msg.edit(view=ReleaseRefundView(ticket_id, crypto))
-                            await msg.channel.send(
-                                "Release controls were attached to the payment message above due to a delivery issue."
+                            fallback_embed = discord.Embed(
+                                title=SPARKLES_TITLE,
+                                description="**DEPOSIT CONFIRMED - TRADE LIVE**\nRelease controls were re-posted in a new message.",
+                                color=0x10B981,
                             )
+                            fallback_embed.set_footer(text=SPARKLES_FOOTER)
+                            fallback_msg = await msg.channel.send(
+                                f"<@{ticket[2]}> <@{ticket[3]}>",
+                                embed=fallback_embed,
+                                view=ReleaseRefundView(ticket_id, crypto),
+                            )
+                            update_ticket(ticket_id, message_id=fallback_msg.id)
                     return
 
             await asyncio.sleep(PAYMENT_POLL_INTERVAL_SECONDS)
@@ -675,7 +761,7 @@ class ReleaseRefundView(ui.View):
             color=0xFF0000
         )
         embed.set_footer(text=SPARKLES_FOOTER)
-        await interaction.response.edit_message(embed=embed, view=None)
+        await interaction.response.send_message(embed=embed)
 
 class ReleaseModal(ui.Modal, title="Enter Seller Address"):
     address = ui.TextInput(label="Seller Wallet Address", placeholder="Address")
@@ -745,11 +831,11 @@ class ReleaseWarningView(ui.View):
             color=0x2b2d31,
         )
         embed.set_footer(text=SPARKLES_FOOTER)
-        await interaction.response.edit_message(embed=embed, view=SellerAddressEntryView(self.ticket_id, self.crypto))
+        await interaction.response.send_message(embed=embed, view=SellerAddressEntryView(self.ticket_id, self.crypto), ephemeral=False)
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
-        await interaction.response.edit_message(content="Release cancelled.", embed=None, view=None)
+        await interaction.response.send_message("Release cancelled.", ephemeral=True)
 
 
 class SellerAddressEntryView(ui.View):
@@ -840,13 +926,13 @@ class ReleaseConfirmView(ui.View):
             embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
             embed.add_field(name="Mode", value="Simulated transfer (/transaction)", inline=False)
             embed.set_footer(text=SPARKLES_FOOTER)
-            await interaction.message.edit(embed=embed, view=None)
+            await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
             return
 
         try:
             if self.crypto == "LTC":
-                amount_ltc = usd_to_ltc(ticket[5])
+                amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
                 tx = send_ltc(ticket[9], amount_ltc, ticket[8])
             else:
                 tx = send_usdt(ticket[9], ticket[5], ticket[8])
@@ -873,7 +959,7 @@ class ReleaseConfirmView(ui.View):
                     raw = str(tx)
                     embed.add_field(name="Raw Payload", value=f"`{raw[:900]}`", inline=False)
                 embed.set_footer(text=SPARKLES_FOOTER)
-                await interaction.message.edit(embed=embed, view=self)
+                await interaction.followup.send(embed=embed, view=ReleaseConfirmView(self.ticket_id, self.crypto))
                 if is_rate_limited and self.ticket_id not in withdraw_retry_tasks:
                     retry_task = bot.loop.create_task(
                         retry_withdrawal(
@@ -902,7 +988,7 @@ class ReleaseConfirmView(ui.View):
             if self.crypto == "LTC":
                 embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
             embed.set_footer(text=SPARKLES_FOOTER)
-            await interaction.message.edit(embed=embed, view=None)
+            await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
         except Exception as e:
             update_ticket(self.ticket_id, status="paid")
@@ -912,7 +998,7 @@ class ReleaseConfirmView(ui.View):
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
-        await interaction.response.edit_message(content="Withdrawal cancelled.", embed=None, view=None)
+        await interaction.response.send_message("Withdrawal cancelled.", ephemeral=True)
 
 class PanelView(ui.View):
     def __init__(self):
@@ -1073,7 +1159,8 @@ async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds
             color=0x10B981,
         )
         embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
-        await msg.edit(embed=embed, view=ReleaseRefundView(ticket_id, crypto))
+        release_msg = await msg.channel.send(embed=embed, view=ReleaseRefundView(ticket_id, crypto))
+        update_ticket(ticket_id, message_id=release_msg.id)
     finally:
         fake_confirmation_tasks.pop(ticket_id, None)
 
@@ -1118,7 +1205,9 @@ async def transaction(ctx):
         return
 
     wait_seconds = random.randint(10, 15)
-    required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
+    required_amount = get_locked_amount_crypto(ticket) if ticket[4] == "LTC" else ticket[5]
+    if required_amount is None:
+        required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
 
     update_ticket(ticket[0], status="unconfirmed")
     await audit(ctx.guild, ticket[0], "fake_payment_unconfirmed", f"by={ctx.author.id}")
@@ -1175,7 +1264,9 @@ async def fake_tx(ctx, channel_id: int):
         return
 
     wait_seconds = random.randint(10, 15)
-    required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
+    required_amount = get_locked_amount_crypto(ticket) if ticket[4] == "LTC" else ticket[5]
+    if required_amount is None:
+        required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
     update_ticket(ticket[0], status="unconfirmed")
     await audit(ctx.guild, ticket[0], "fake_payment_unconfirmed", f"by={ctx.author.id}")
     status_msg = await channel.send(
@@ -1353,7 +1444,7 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
 
     try:
         if ticket[4] == "LTC":
-            amount_ltc = usd_to_ltc(ticket[5])
+            amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
             tx = send_ltc(payout_address, amount_ltc, ticket[8])
         else:
             tx = send_usdt(payout_address, ticket[5], ticket[8])
@@ -1563,6 +1654,7 @@ async def on_ready():
             print(f"Slash sync failed: {exc}")
         slash_synced = True
     print("DOG AUTO MM BOT READY")
+    bot.add_view(PaymentDetailsView())
     bot.loop.create_task(resume_pending_monitors())
 
 

@@ -79,8 +79,8 @@ def usd_to_ltc(amount_usd):
         return amount_usd / 100  # Fallback: assume ~$100/LTC
 
 
-def detect_ltc_payment(address, amount_usd):
-    amount_ltc = usd_to_ltc(amount_usd)
+def detect_ltc_payment(address, amount_usd, required_ltc=None):
+    amount_ltc = required_ltc if required_ltc is not None else usd_to_ltc(amount_usd)
     minimum_ltc = max(amount_ltc * 0.99, 0)
 
     try:

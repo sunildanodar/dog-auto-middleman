@@ -18,6 +18,7 @@ TICKET_COLUMNS = {
     "message_id",
     "description",
     "deal_id",
+    "locked_amount_crypto",
 }
 
 
@@ -43,10 +44,12 @@ def init():
         seller_address TEXT,
         message_id INTEGER,
         description TEXT,
-        deal_id TEXT
+        deal_id TEXT,
+        locked_amount_crypto REAL
     )""")
     _ensure_column(c, "tickets", "description", "TEXT")
     _ensure_column(c, "tickets", "deal_id", "TEXT")
+    _ensure_column(c, "tickets", "locked_amount_crypto", "REAL")
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS ticket_events (
@@ -84,8 +87,8 @@ def save_ticket(ticket_id, channel_id, buyer_id, seller_id, crypto, amount, wall
         """
         INSERT INTO tickets (
             ticket_id, channel_id, buyer_id, seller_id, crypto, amount, status,
-            wallet_address, encrypted_private, seller_address, message_id, description, deal_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            wallet_address, encrypted_private, seller_address, message_id, description, deal_id, locked_amount_crypto
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             ticket_id,
@@ -101,6 +104,7 @@ def save_ticket(ticket_id, channel_id, buyer_id, seller_id, crypto, amount, wall
             message_id,
             description,
             deal_id,
+            None,
         ),
     )
     conn.commit()

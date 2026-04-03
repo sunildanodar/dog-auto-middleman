@@ -21,6 +21,11 @@ def _env_int(name, default):
 		return default
 
 
+def _env_bool(name, default=False):
+	value = str(os.getenv(name, str(default))).strip().lower()
+	return value in ("1", "true", "yes", "on")
+
+
 def _env_required(name):
 	value = os.getenv(name, "").strip()
 	if not value:
@@ -40,6 +45,17 @@ CONFIRMATIONS_REQUIRED = _env_int("CONFIRMATIONS_REQUIRED", 2)
 FEE_PERCENT = _env_int("FEE_PERCENT", 2)
 PAYMENT_TIMEOUT_MINUTES = _env_int("PAYMENT_TIMEOUT_MINUTES", 20)
 DB_NAME = os.getenv("DB_NAME", "data.db")
+DB_BACKUP_DIR = os.getenv("DB_BACKUP_DIR", "db_backups")
+DB_BACKUP_INTERVAL_MINUTES = _env_int("DB_BACKUP_INTERVAL_MINUTES", 30)
+DB_BACKUP_RETENTION_DAYS = _env_int("DB_BACKUP_RETENTION_DAYS", 14)
+DB_BACKUP_MAX_FILES = _env_int("DB_BACKUP_MAX_FILES", 300)
+BACKUP_EXPORT_DIR = os.getenv("BACKUP_EXPORT_DIR", os.path.join(DB_BACKUP_DIR, "exports"))
+BACKUP_EXPORT_MAX_FILES = _env_int("BACKUP_EXPORT_MAX_FILES", 120)
+BACKUP_ALERT_MAX_AGE_MINUTES = _env_int("BACKUP_ALERT_MAX_AGE_MINUTES", 120)
+BACKUP_STARTUP_MAX_AGE_MINUTES = _env_int("BACKUP_STARTUP_MAX_AGE_MINUTES", 0)
+BACKUP_ENCRYPTION_KEY = os.getenv("BACKUP_ENCRYPTION_KEY", "").strip().encode()
+STRICT_KEY_FINGERPRINT = _env_bool("STRICT_KEY_FINGERPRINT", True)
+REQUIRE_PERSISTENT_DB = _env_bool("REQUIRE_PERSISTENT_DB", False)
 
 # BEP20 settings
 BSC_RPC_URL = os.getenv("BSC_RPC_URL", "https://bsc-dataseed.binance.org/")

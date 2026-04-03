@@ -8,11 +8,12 @@ import string
 import re
 import secrets
 import requests
+import os
 from discord.ext import commands
 from discord import ui
-from config import TOKEN, LOG_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION
+from config import TOKEN, LOG_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES
 from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
-from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain
+from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 init()
@@ -34,6 +35,8 @@ sensitive_command_last_used = {}
 withdraw_processing = set()
 fake_confirmation_tasks = {}
 payment_view_registered = False
+backup_task_started = False
+security_alert_last_sent = {}
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)
@@ -41,8 +44,74 @@ def log(guild, msg):
         asyncio.create_task(ch.send(msg))
 
 
+async def send_security_alert(message, key="generic", cooldown_seconds=600):
+    now = int(time.time())
+    last = int(security_alert_last_sent.get(key, 0))
+    if now - last < cooldown_seconds:
+        return
+    security_alert_last_sent[key] = now
+
+    print(f"SECURITY ALERT: {message}")
+    if LOG_CHANNEL_ID <= 0:
+        return
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if channel is None:
+        return
+    try:
+        await channel.send(f"⚠️ SECURITY ALERT\n{message}")
+    except Exception:
+        pass
+
+
 def is_admin_user(guild, user):
     return user.id == ADMIN_ID or (guild is not None and user.id == guild.owner_id)
+
+
+def running_on_railway():
+    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+
+
+def enforce_runtime_safety():
+    if not REQUIRE_PERSISTENT_DB:
+        return
+
+    db_name = (DB_NAME or "").strip().lower()
+    if running_on_railway() and db_name in ("data.db", "./data.db"):
+        raise RuntimeError(
+            "Unsafe storage setup detected: Railway + local SQLite file. "
+            "Set REQUIRE_PERSISTENT_DB=false or move DB_NAME to persistent storage."
+        )
+
+    if BACKUP_STARTUP_MAX_AGE_MINUTES > 0:
+        snapshot = database_safety_snapshot()
+        age = snapshot.get("last_backup_age_seconds")
+        max_age_seconds = BACKUP_STARTUP_MAX_AGE_MINUTES * 60
+        if age is None or age > max_age_seconds:
+            raise RuntimeError(
+                "Backup freshness check failed at startup. "
+                f"Last backup age: {age if age is not None else 'none'}s, "
+                f"max allowed: {max_age_seconds}s."
+            )
+
+
+async def backup_loop():
+    while True:
+        try:
+            backup_path = create_db_backup()
+            print(f"DB backup created: {backup_path}")
+            snapshot = database_safety_snapshot()
+            age = snapshot.get("last_backup_age_seconds")
+            if age is None:
+                await send_security_alert("No backup found after backup cycle.", key="no_backup")
+            elif age > max(BACKUP_ALERT_MAX_AGE_MINUTES, 1) * 60:
+                await send_security_alert(
+                    f"Backups are stale: last backup is {age}s old (threshold {BACKUP_ALERT_MAX_AGE_MINUTES * 60}s).",
+                    key="stale_backup",
+                )
+        except Exception as exc:
+            print(f"DB backup failed: {exc}")
+            await send_security_alert(f"Database backup failed: {exc}", key="backup_failed")
+        await asyncio.sleep(max(DB_BACKUP_INTERVAL_MINUTES, 5) * 60)
 
 
 @bot.command(name='version', help='Check which code version is running')
@@ -1069,35 +1138,36 @@ async def panel(ctx):
         return
 
     main_embed = discord.Embed(
-        title=SPARKLES_TITLE,
+        title="SPARKLES AUTO MIDDLEMAN",
         description=(
             "**AUTO MIDDLEMAN PANEL**\n\n"
-            "**FREE SERVICE**\n"
-            "- Read and accept ToS before creating deals.\n"
-            "- Only use controls shown by the bot.\n"
-            "- Buyer and seller must both confirm ticket details."
+            "**FREE SERVICE | SECURE ESCROW**\n"
+            "**READ THIS BEFORE OPENING A DEAL:**\n"
+            "- **Accept ToS before creating deals.**\n"
+            "- **Only use controls shown by the bot.**\n"
+            "- **Buyer and seller must both confirm ticket details.**"
         ),
         color=0x111827
     )
     main_embed.set_footer(text="Dog Escrow | Fast, secure, monitored")
 
     ltc_embed = discord.Embed(
-        title="Request Litecoin",
-        description="• Network: LTC\n• Use this for Litecoin middleman deals.",
+        title="REQUEST LITECOIN",
+        description="**NETWORK:** LTC\n**USE THIS FOR:** Litecoin middleman deals.",
         color=0x5865F2,
     )
     ltc_embed.set_footer(text=SPARKLES_FOOTER)
 
     usdt_bep20_embed = discord.Embed(
-        title="Request USDT [BEP-20]",
-        description="• Network: BSC (BEP-20)\n• Use this for USDT on BNB Smart Chain.",
+        title="REQUEST USDT [BEP-20]",
+        description="**NETWORK:** BSC (BEP-20)\n**USE THIS FOR:** USDT on BNB Smart Chain.",
         color=0x10B981,
     )
     usdt_bep20_embed.set_footer(text=SPARKLES_FOOTER)
 
     usdt_eth_embed = discord.Embed(
-        title="Request USDT [ETH]",
-        description="• Network: Ethereum (ERC-20)\n• Use this for USDT on Ethereum.",
+        title="REQUEST USDT [ETH]",
+        description="**NETWORK:** Ethereum (ERC-20)\n**USE THIS FOR:** USDT on Ethereum.",
         color=0x3B82F6,
     )
     usdt_eth_embed.set_footer(text=SPARKLES_FOOTER)
@@ -1716,10 +1786,85 @@ async def quota(ctx):
     embed.set_footer(text=SPARKLES_FOOTER)
     await ctx.send(embed=embed)
 
+
+@bot.command(name="backup_now", aliases=["backupdb", "dbbackup"])
+async def backup_now(ctx):
+    if not await enforce_sensitive_cooldown(ctx, "backup_now"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    try:
+        path = create_db_backup()
+        await ctx.send(f"Database backup created: `{path}`")
+    except Exception as exc:
+        await ctx.send(f"Database backup failed: `{str(exc)[:900]}`")
+
+
+@bot.command(name="backup_export", aliases=["securebackup", "backupenc"])
+async def backup_export(ctx):
+    if not await enforce_sensitive_cooldown(ctx, "backup_export"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    try:
+        result = create_encrypted_backup_export()
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**ENCRYPTED BACKUP EXPORT CREATED**\nStore this file in offsite storage.",
+            color=0x10B981,
+        )
+        embed.add_field(name="Backup File", value=f"`{result.get('backup_path')}`", inline=False)
+        embed.add_field(name="Encrypted Export", value=f"`{result.get('export_path')}`", inline=False)
+        embed.add_field(name="SHA256 (plaintext)", value=f"`{result.get('sha256')}`", inline=False)
+        embed.set_footer(text=SPARKLES_FOOTER)
+        await ctx.send(embed=embed)
+    except Exception as exc:
+        await ctx.send(f"Encrypted backup export failed: `{str(exc)[:900]}`")
+
+
+@bot.command(name="security_status", aliases=["secstatus", "dbstatus"])
+async def security_status(ctx):
+    if not await enforce_sensitive_cooldown(ctx, "security_status"):
+        return
+    if not is_admin_user(ctx.guild, ctx.author):
+        await ctx.send("Only the configured admin or server owner can use this command.")
+        return
+
+    try:
+        snapshot = database_safety_snapshot()
+        age = snapshot.get("last_backup_age_seconds")
+        age_text = "never" if age is None else f"{age}s ago"
+        embed = discord.Embed(
+            title=SPARKLES_TITLE,
+            description="**SECURITY STATUS**\nDatabase and key safety snapshot.",
+            color=0x10B981,
+        )
+        embed.add_field(name="DB Exists", value=str(snapshot.get("db_exists")), inline=True)
+        embed.add_field(name="DB Size (bytes)", value=str(snapshot.get("db_size_bytes")), inline=True)
+        embed.add_field(name="Backup Count", value=str(snapshot.get("backup_count")), inline=True)
+        embed.add_field(name="Last Backup", value=age_text, inline=True)
+        embed.add_field(name="Key Fingerprint", value="OK" if snapshot.get("key_fingerprint_ok") else "MISMATCH", inline=True)
+        freshness_ok = age is not None and age <= max(BACKUP_ALERT_MAX_AGE_MINUTES, 1) * 60
+        embed.add_field(name="Backup Freshness", value="OK" if freshness_ok else "STALE", inline=True)
+        embed.add_field(name="Startup Max Backup Age", value=f"{BACKUP_STARTUP_MAX_AGE_MINUTES} min", inline=True)
+        embed.add_field(name="DB Path", value=f"`{snapshot.get('db_path')}`", inline=False)
+        embed.add_field(name="Backup Dir", value=f"`{snapshot.get('backup_dir')}`", inline=False)
+        embed.set_footer(text=SPARKLES_FOOTER)
+        await ctx.send(embed=embed)
+    except Exception as exc:
+        await ctx.send(f"Security status check failed: `{str(exc)[:900]}`")
+
 @bot.event
 async def on_ready():
     global slash_synced
     global payment_view_registered
+    global backup_task_started
+
+    enforce_runtime_safety()
     if not slash_synced:
         try:
             await bot.tree.sync()
@@ -1736,6 +1881,16 @@ async def on_ready():
             payment_view_registered = True
         except Exception as exc:
             print(f"Persistent view registration failed: {exc}")
+
+    if not backup_task_started:
+        try:
+            initial_backup = create_db_backup()
+            print(f"Initial DB backup created: {initial_backup}")
+        except Exception as exc:
+            print(f"Initial DB backup failed: {exc}")
+        bot.loop.create_task(backup_loop())
+        backup_task_started = True
+
     bot.loop.create_task(resume_pending_monitors())
 
 

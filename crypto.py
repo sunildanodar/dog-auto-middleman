@@ -3,6 +3,7 @@ from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIR
 from web3 import Web3
 from cryptography.fernet import Fernet
 import secrets, hashlib, base58, ecdsa, json
+from decimal import Decimal, InvalidOperation
 from ecdsa.util import sigencode_der_canonize
 
 fernet = Fernet(ENCRYPTION_KEY)
@@ -274,6 +275,17 @@ def _network_client_and_contract(network):
         return w3_eth, USDT_ETH_CONTRACT_ADDRESS, 6
     return w3_bsc, USDT_CONTRACT_ADDRESS, 18
 
+
+def _to_token_units(amount, decimals):
+    try:
+        value = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    scale = Decimal(10) ** decimals
+    return int(value * scale)
+
 def generate_bep20_wallet():
     account = w3_bsc.eth.account.create()
     return {"address": account.address, "private": encrypt_key(account.key.hex())}
@@ -313,19 +325,55 @@ def detect_usdt_payment(address, amount, network="BEP20"):
     return False, confirmations, txid, usdt_balance
 
 def send_usdt(to_address, amount, priv_key, network="BEP20"):
-    w3, contract_address, decimals = _network_client_and_contract(network)
-    priv = decrypt_key(priv_key)
-    account = w3.eth.account.from_key(priv)
-    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}])
-    tx = contract.functions.transfer(Web3.to_checksum_address(to_address), int(amount * (10 ** decimals))).build_transaction({
-        'from': account.address,
-        'gas': 200000,
-        'gasPrice': w3.eth.gas_price,
-        'nonce': w3.eth.get_transaction_count(account.address),
-    })
-    signed = w3.eth.account.sign_transaction(tx, priv)
-    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-    return tx_hash.hex()
+    try:
+        w3, contract_address, decimals = _network_client_and_contract(network)
+        priv = decrypt_key(priv_key)
+        account = w3.eth.account.from_key(priv)
+        recipient = Web3.to_checksum_address(to_address)
+        amount_units = _to_token_units(amount, decimals)
+        if amount_units is None:
+            return {"error": "Invalid USDT amount for transfer."}
+
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(contract_address),
+            abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}],
+        )
+
+        transfer_call = contract.functions.transfer(recipient, amount_units)
+        gas_price = w3.eth.gas_price
+        nonce = w3.eth.get_transaction_count(account.address)
+        try:
+            gas_limit = transfer_call.estimate_gas({'from': account.address})
+        except Exception:
+            gas_limit = 200000
+
+        native_balance = w3.eth.get_balance(account.address)
+        fee_wei = gas_limit * gas_price
+        if native_balance < fee_wei:
+            symbol = "ETH" if _network_key(network) == "ETH" else "BNB"
+            return {
+                "error": (
+                    f"Insufficient {symbol} for gas. "
+                    f"Need about {Web3.from_wei(fee_wei, 'ether')} {symbol}, "
+                    f"wallet has {Web3.from_wei(native_balance, 'ether')} {symbol}."
+                )
+            }
+
+        tx = transfer_call.build_transaction({
+            'from': account.address,
+            'gas': gas_limit,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': w3.eth.chain_id,
+        })
+        signed = w3.eth.account.sign_transaction(tx, priv)
+        raw_tx = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
+        if raw_tx is None:
+            return {"error": "Unable to read signed transaction bytes from provider SDK."}
+        tx_hash = w3.eth.send_raw_transaction(raw_tx)
+        return tx_hash.hex()
+    except Exception as exc:
+        return {"error": f"USDT send failed: {exc}"}
 
 def sweep_usdt_to_master(priv_key, network="BEP20"):
     # Similar to send, but to master
@@ -342,6 +390,9 @@ def sweep_usdt_to_master(priv_key, network="BEP20"):
             'nonce': w3.eth.get_transaction_count(account.address),
         })
         signed = w3.eth.account.sign_transaction(tx, priv)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        raw_tx = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
+        if raw_tx is None:
+            return {"error": "Unable to read signed transaction bytes from provider SDK."}
+        tx_hash = w3.eth.send_raw_transaction(raw_tx)
         return tx_hash.hex()
     return None

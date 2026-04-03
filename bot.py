@@ -33,6 +33,7 @@ MAX_DEAL_USD = 50000.0
 sensitive_command_last_used = {}
 withdraw_processing = set()
 fake_confirmation_tasks = {}
+payment_view_registered = False
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)
@@ -1647,6 +1648,7 @@ async def quota(ctx):
 @bot.event
 async def on_ready():
     global slash_synced
+    global payment_view_registered
     if not slash_synced:
         try:
             await bot.tree.sync()
@@ -1654,7 +1656,12 @@ async def on_ready():
             print(f"Slash sync failed: {exc}")
         slash_synced = True
     print("DOG AUTO MM BOT READY")
-    bot.add_view(PaymentDetailsView())
+    if not payment_view_registered:
+        try:
+            bot.add_view(PaymentDetailsView())
+            payment_view_registered = True
+        except Exception as exc:
+            print(f"Persistent view registration failed: {exc}")
     bot.loop.create_task(resume_pending_monitors())
 
 

@@ -11,7 +11,7 @@ import requests
 import os
 from discord.ext import commands
 from discord import ui
-from config import TOKEN, LOG_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES
+from config import TOKEN, LOG_CHANNEL_ID, PROOF_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES
 from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
 from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
@@ -1731,6 +1731,11 @@ async def proof(ctx, *parts):
         return
 
     final_txid = sanitize_txid_text(txid)
+    if "http://" in final_txid or "https://" in final_txid:
+        chunks = [chunk for chunk in final_txid.split("/") if chunk]
+        if chunks:
+            final_txid = chunks[-1].split("?", 1)[0].split("#", 1)[0]
+    final_txid = final_txid.replace("[", "").replace("]", "").replace("(", "").replace(")", "")
     amount_ltc = usd_to_ltc(amount_value)
 
     proof_embed = discord.Embed(
@@ -1738,10 +1743,26 @@ async def proof(ctx, *parts):
         color=0x111827,
     )
     proof_embed.add_field(name="Amount", value=f"`{amount_ltc:.8f} LTC (${amount_value:.2f} USD)`", inline=False)
+    proof_embed.add_field(name="Sender", value="`Anonymous`", inline=True)
+    proof_embed.add_field(name="Receiver", value="`Anonymous`", inline=True)
     proof_embed.add_field(name="Transaction ID", value=f"`{final_txid}`", inline=False)
     proof_embed.set_footer(text="Dog Escrow")
 
-    await ctx.send(embed=proof_embed, allowed_mentions=discord.AllowedMentions.none())
+    target_channel = ctx.guild.get_channel(PROOF_CHANNEL_ID) if (ctx.guild and PROOF_CHANNEL_ID > 0) else ctx.channel
+    if not target_channel:
+        await ctx.send("Proof channel not found. Set PROOF_CHANNEL_ID or run command in the target channel.")
+        return
+
+    try:
+        await target_channel.send(embed=proof_embed, allowed_mentions=discord.AllowedMentions.none())
+    except Exception as exc:
+        await ctx.send(f"Failed to send proof message: `{str(exc)[:300]}`")
+        return
+
+    if target_channel.id == ctx.channel.id:
+        await ctx.send("Proof posted in this channel.")
+    else:
+        await ctx.send(f"Proof posted in {target_channel.mention}.")
 
 
 @bot.command()

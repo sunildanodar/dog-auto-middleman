@@ -1,3 +1,46 @@
+@bot.command(name='sparkles_panel', help='Show Sparkles-style panel with all options')
+async def sparkles_panel(ctx):
+    embed = discord.Embed(
+        title="✨ Sparkles's Auto Middleman ✨",
+        description=(
+            "**__Paid Service__**\n"
+            "\n"
+            "**• Read our ToS before using the bot:** <#TOS_CHANNEL_ID>\n"
+            "**• The ToS in <#MM_TOS_CHANNEL_ID> also apply here.**\n"
+            "\n"
+            "───────────────────────────────"
+        ),
+        color=0x23272A
+    )
+    embed.set_footer(text="Tutorial", icon_url="https://cdn.discordapp.com/emojis/1171577373022332998.png?v=1")
+
+    # Panel for LTC
+    ltc_embed = discord.Embed(
+        title="<:ltc:1171577373022332998>  **Request Litecoin**  <:ltc:1171577373022332998>",
+        color=0x23272A
+    )
+    ltc_embed.add_field(name="\u200b", value="[  **Request LTC**  ]", inline=False)
+
+    # Panel for USDT BEP-20
+    usdt_bep20_embed = discord.Embed(
+        title="<:usdt:1171577373022332998>  **Request USDT [BEP-20]**  <:usdt:1171577373022332998>",
+        description="**Network:** BSC (BEP-20)",
+        color=0x10B981
+    )
+    usdt_bep20_embed.add_field(name="\u200b", value="[  **Request USDT [BEP-20]**  ]", inline=False)
+
+    # Panel for USDT ETH
+    usdt_eth_embed = discord.Embed(
+        title="<:usdt:1171577373022332998>  **Request USDT [ETH]**  <:usdt:1171577373022332998>",
+        description="**Network:** Ethereum",
+        color=0x6366F1
+    )
+    usdt_eth_embed.add_field(name="\u200b", value="[  **Request USDT [ETH]**  ]", inline=False)
+
+    await ctx.send(embed=embed)
+    await ctx.send(embed=ltc_embed, view=RequestLTCView())
+    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
+    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 import discord
 import asyncio
 import time

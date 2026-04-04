@@ -38,26 +38,30 @@ payment_view_registered = False
 backup_task_started = False
 security_alert_last_sent = {}
 
-@bot.command(name='panel', help='Show Dog Auto Middleman panel with all options')
+@bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
 async def panel(ctx):
     # Main info panel
     embed = discord.Embed(
-        title="Dog Auto Middleman",
+        title="DOG AUTO MIDDLEMAN",
         description=(
-            "**Paid Service**\n"
-            "\n"
-            "- Read our ToS before using the bot: <#TOS_CHANNEL_ID>\n"
-            "- The ToS in <#MM_TOS_CHANNEL_ID> also apply here.\n"
-            "\n"
-            "───────────────────────────────\n"
-            "**Fees:**\n"
-            "- Deals $250+: $1.50\n"
-            "- Deals under $250: $0.50\n"
-            "- Deals under $50 are FREE\n"
+            "**AUTO MIDDLEMAN PANEL**\n\n"
+            "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
+            "Clean flow. Fast setup. Secure release.\n\n"
+            "**AVAILABLE NETWORKS**\n"
+            "LTC - Litecoin escrow deals\n"
+            "USDT [BEP-20] - USDT on BNB Smart Chain\n"
+            "USDT [ETH] - USDT on Ethereum\n\n"
+            "**HOW IT WORKS**\n"
+            "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n\n"
+            "LTC                USDT [BEP-20]           USDT [ETH]\n"
+            "`Fast Litecoin`    `Best for BNB Smart`    `ERC-20 escrow on`\n"
+            "`middleman deals` `Chain trades`           `Ethereum`\n\n"
+            "Open A Deal\n"
+            "Use the buttons below in this order: LTC, BEP-20, USDT ETH.\n"
         ),
         color=0x23272A
     )
-    embed.set_footer(text="Tutorial")
+    embed.set_footer(text="Dog Auto Middleman")
 
     # LTC panel
     ltc_embed = discord.Embed(

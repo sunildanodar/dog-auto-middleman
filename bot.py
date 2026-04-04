@@ -40,56 +40,30 @@ security_alert_last_sent = {}
 
 @bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
 async def panel(ctx):
-    # Main info panel (bigger, bold, with emojis)
-    embed = discord.Embed(
-        title="✨ **DOG AUTO MIDDLEMAN** ✨",
-        description=(
-            "**AUTO MIDDLEMAN PANEL**\n\n"
-            "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
-            "Clean flow. Fast setup. Secure release.\n\n"
-            "**AVAILABLE NETWORKS**\n"
-            "<:ltc:> **LTC** - Litecoin escrow deals\n"
-            "<:usdt:> **USDT [BEP-20]** - USDT on BNB Smart Chain\n"
-            "<:usdteth:> **USDT [ETH]** - USDT on Ethereum\n\n"
-            "**HOW IT WORKS**\n"
-            "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n\n"
-            "**LTC**                **USDT [BEP-20]**           **USDT [ETH]**\n"
-            "`Fast Litecoin`    `Best for BNB Smart`    `ERC-20 escrow on`\n"
-            "`middleman deals` `Chain trades`           `Ethereum`\n\n"
-            "**Open A Deal**\n"
-            "Use the buttons below in this order: LTC, BEP-20, USDT ETH.\n"
-        ),
-        color=0x23272A
-    )
-    embed.set_footer(text="Dog Auto Middleman")
-
-
-    # LTC panel (Sparkles style: custom emoji, bold, layout)
+    # LTC panel
     ltc_embed = discord.Embed(
         title="🪙 **· Request Litecoin ·** 🪙",
         color=0x23272A
     )
     ltc_embed.add_field(name="\u200b", value="[  Request LTC  ]", inline=False)
+    await ctx.send(embed=ltc_embed, view=RequestLTCView())
 
-    # USDT BEP-20 panel (Sparkles style: custom emoji, bold, layout)
+    # USDT BEP-20 panel (use coin emoji for clarity)
     usdt_bep20_embed = discord.Embed(
-        title="💵 **· Request USDT [BEP-20] ·** 💵",
-        description="💵 Network: BSC (BEP-20)",
+        title="🪙 **· Request USDT [BEP-20] ·** 🪙",
+        description="🪙 Network: BSC (BEP-20)",
         color=0x10B981
     )
     usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
+    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
 
-    # USDT ETH panel (Sparkles style: custom emoji, bold, layout)
+    # USDT ETH panel (use money emoji for distinction)
     usdt_eth_embed = discord.Embed(
         title="💵 **· Request USDT [ETH] ·** 💵",
         description="💵 Network: Ethereum",
         color=0x6366F1
     )
     usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
-
-    await ctx.send(embed=embed)
-    await ctx.send(embed=ltc_embed, view=RequestLTCView())
-    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
     await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 
 def log(guild, msg):
@@ -1850,23 +1824,21 @@ async def proof(ctx, *parts):
     final_txid = final_txid.replace("[", "").replace("]", "").replace("(", "").replace(")", "")
     # Detect asset type (LTC or USDT)
     asset = "LTC"
+    asset_label_display = "LTC"
+    tx_link_func = ltc_tx_link
+    color = 0x111827
     if "usdt" in full_input.lower() or "bep" in full_input.lower() or "bsc" in full_input.lower():
         asset = "USDT_BEP20"
-
-    if asset == "LTC":
-        amount_crypto = usd_to_ltc(amount_value)
-        asset_label_display = "LTC"
-        tx_link_func = ltc_tx_link
-    else:
-        amount_crypto = amount_value  # USDT is 1:1
         asset_label_display = "USDT [BEP-20]"
         tx_link_func = lambda txid: f"https://bscscan.com/tx/{txid}"
+        color = 0x10B981
 
-    # Make USDT proof embed exactly like LTC (not big, same style)
+    amount_crypto = usd_to_ltc(amount_value) if asset == "LTC" else amount_value
+
     proof_embed = discord.Embed(
         title="• Trade Completed",
         description=f"{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)",
-        color=0x111827,
+        color=color,
     )
     proof_embed.add_field(name="Sender", value="Anonymous", inline=True)
     proof_embed.add_field(name="Receiver", value="Anonymous", inline=True)

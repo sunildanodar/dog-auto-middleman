@@ -41,85 +41,44 @@ security_alert_last_sent = {}
 @bot.command(name='sparkles_panel', help='Show Sparkles-style panel with all options')
 async def sparkles_panel(ctx):
     embed = discord.Embed(
-        title="✨ Sparkles's Auto Middleman ✨",
+        title="✨ Dog Auto Middleman ✨",
         description=(
-            "**__Paid Service__**\n"
-            "\n"
-            "**• Read our ToS before using the bot:** <#TOS_CHANNEL_ID>\n"
-            "**• The ToS in <#MM_TOS_CHANNEL_ID> also apply here.**\n"
-            "\n"
+            "**Free Service**\n"
+            "• Read our ToS before using the bot: <#TOS_CHANNEL_ID>\n"
+            "• The ToS in <#MM_TOS_CHANNEL_ID> also apply here.**\n"
             "───────────────────────────────"
         ),
         color=0x23272A
     )
-    embed.set_footer(text="Tutorial", icon_url="https://cdn.discordapp.com/emojis/1171577373022332998.png?v=1")
+    embed.set_footer(text="Tutorial")
 
     # Panel for LTC
     ltc_embed = discord.Embed(
-        title="<:ltc:1171577373022332998>  **Request Litecoin**  <:ltc:1171577373022332998>",
+        title="• Request Litecoin •",
         color=0x23272A
     )
-    ltc_embed.add_field(name="\u200b", value="[  **Request LTC**  ]", inline=False)
+    ltc_embed.add_field(name="\u200b", value="[  Request LTC  ]", inline=False)
 
     # Panel for USDT BEP-20
     usdt_bep20_embed = discord.Embed(
-        title="<:usdt:1171577373022332998>  **Request USDT [BEP-20]**  <:usdt:1171577373022332998>",
-        description="**Network:** BSC (BEP-20)",
+        title="• Request USDT [BEP-20] •",
+        description="Network: BSC (BEP-20)",
         color=0x10B981
     )
-    usdt_bep20_embed.add_field(name="\u200b", value="[  **Request USDT [BEP-20]**  ]", inline=False)
+    usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
 
     # Panel for USDT ETH
     usdt_eth_embed = discord.Embed(
-        title="<:usdt:1171577373022332998>  **Request USDT [ETH]**  <:usdt:1171577373022332998>",
-        description="**Network:** Ethereum",
+        title="• Request USDT [ETH] •",
+        description="Network: Ethereum",
         color=0x6366F1
     )
-    usdt_eth_embed.add_field(name="\u200b", value="[  **Request USDT [ETH]**  ]", inline=False)
+    usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
 
     await ctx.send(embed=embed)
     await ctx.send(embed=ltc_embed, view=RequestLTCView())
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
     await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
-import discord
-import asyncio
-import time
-import datetime
-import json
-import random
-import string
-import re
-import secrets
-import requests
-import os
-from discord.ext import commands
-from discord import ui
-from config import TOKEN, LOG_CHANNEL_ID, PROOF_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES, PAYMENT_POLL_INTERVAL_SECONDS, LTC_NETWORK_FEE_USD, FEE_PERCENT
-from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
-from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
-
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
-init()
-active_monitors = set()
-slash_synced = False
-withdraw_cooldowns = {}
-withdraw_retry_tasks = {}
-
-PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
-WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
-WITHDRAW_RETRY_BASE_SECONDS = 180
-WITHDRAW_RETRY_MAX_ATTEMPTS = 5
-SPARKLES_TITLE = "DOG AUTO MIDDLEMAN"
-SPARKLES_FOOTER = "Dog Escrow"
-SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
-MIN_DEAL_USD = 0.1
-MAX_DEAL_USD = 50000.0
-sensitive_command_last_used = {}
-withdraw_processing = set()
-fake_confirmation_tasks = {}
-payment_view_registered = False
-backup_task_started = False
-security_alert_last_sent = {}
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)

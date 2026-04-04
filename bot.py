@@ -390,7 +390,7 @@ def build_payment_embed(ticket, wallet_address):
         value="- Never send directly to seller.\n- Use `Copy Details` button below.\n- Release only after buyer confirms delivery.",
         inline=False,
     )
-    embed.set_footer(text="Dog Escrow | Auto-monitoring enabled | Confirmations update automatically")
+    embed.set_footer(text="Dog Auto Mm Bot | Auto-monitoring enabled | Confirmations update automatically")
     return embed
 
 
@@ -407,7 +407,7 @@ def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid="simulated
     embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
     embed.add_field(name="RECEIVED", value=f"{display_received:.8f} {crypto} (${amount_usd:.2f})", inline=True)
     embed.add_field(name="REQUIRED", value=f"{required_amount:.8f} {crypto} (${amount_usd:.2f})", inline=True)
-    embed.set_footer(text="Dog Escrow | Awaiting confirmations")
+    embed.set_footer(text="Dog Auto Mm Bot | Awaiting confirmations")
     return embed
 
 
@@ -1759,8 +1759,8 @@ async def generate_proof(ctx, channel_id: int = None):
     completed_at = int(time.time())
 
     proof_embed = discord.Embed(
-        title=SPARKLES_TITLE,
-        description="**DEAL PROOF**\nThis deal was completed through Dog Auto Middleman.",
+        title="Dog Auto Mm Bot",
+        description="**DEAL PROOF**\nThis deal was completed through Dog Auto Mm Bot.",
         color=0x10B981,
     )
     proof_embed.add_field(name="Proof ID", value=f"`PRF-{ticket[0]}-{completed_at}`", inline=False)
@@ -1772,7 +1772,7 @@ async def generate_proof(ctx, channel_id: int = None):
     proof_embed.add_field(name="Deal Amount", value=f"`${ticket[5]:.2f}`", inline=True)
     proof_embed.add_field(name="Status", value="`Completed`", inline=True)
     proof_embed.add_field(name="Transaction ID", value=f"`{random_txid}`", inline=False)
-    proof_embed.set_footer(text="Dog Escrow | Proof generated")
+    proof_embed.set_footer(text="Dog Auto Mm Bot | Proof generated")
 
     await target_channel.send(embed=proof_embed)
     await audit(ctx.guild, ticket[0], "proof_generated", f"by={ctx.author.id} txid={random_txid}")

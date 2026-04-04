@@ -1917,6 +1917,7 @@ async def proof(ctx, *parts):
     # Only post once, no duplicates
     try:
         await target_channel.send(embed=proof_embed, view=proof_view, allowed_mentions=discord.AllowedMentions.none())
+        return  # Ensure only one message is sent
     except Exception as exc:
         await ctx.send(f"Failed to send proof message: `{str(exc)[:300]}`")
         return

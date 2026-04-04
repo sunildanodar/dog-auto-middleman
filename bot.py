@@ -11,7 +11,7 @@ import requests
 import os
 from discord.ext import commands
 from discord import ui
-from config import TOKEN, LOG_CHANNEL_ID, PROOF_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES
+from config import TOKEN, LOG_CHANNEL_ID, PROOF_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES, PAYMENT_POLL_INTERVAL_SECONDS, LTC_NETWORK_FEE_USD, FEE_PERCENT
 from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
 from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
@@ -22,7 +22,7 @@ slash_synced = False
 withdraw_cooldowns = {}
 withdraw_retry_tasks = {}
 
-PAYMENT_POLL_INTERVAL_SECONDS = 90
+PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
 WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
 WITHDRAW_RETRY_BASE_SECONDS = 180
 WITHDRAW_RETRY_MAX_ATTEMPTS = 5
@@ -227,6 +227,38 @@ def get_locked_amount_crypto(ticket):
     except Exception:
         return None
 
+def ltc_seller_payout_usd(amount_usd):
+    try:
+        value = float(amount_usd)
+    except (TypeError, ValueError):
+        return 0.0
+    # Apply the same payout fee policy for every LTC deal size.
+    return max(value - LTC_NETWORK_FEE_USD, 0.0)
+
+
+def ltc_deposit_target_usd(amount_usd):
+    try:
+        value = float(amount_usd)
+    except (TypeError, ValueError):
+        return 0.0
+    # Buyer always pays the deal amount (no extra top-up request).
+    return value
+
+
+def stablecoin_seller_payout_usd(amount_usd):
+    try:
+        value = float(amount_usd)
+    except (TypeError, ValueError):
+        return 0.0
+    fee_multiplier = max(0.0, min(float(FEE_PERCENT), 100.0)) / 100.0
+    return max(value * (1.0 - fee_multiplier), 0.0)
+
+
+def seller_payout_usd(amount_usd, asset):
+    if str(asset or "").upper().strip() == "LTC":
+        return ltc_seller_payout_usd(amount_usd)
+    return stablecoin_seller_payout_usd(amount_usd)
+
 
 def sanitize_txid_text(value, max_length=120):
     if not value:
@@ -255,10 +287,10 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
             await audit(None, ticket_id, "withdraw_retry_attempt", f"attempt={attempt}")
 
             if crypto == "LTC":
-                amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
+                amount_ltc = usd_to_ltc(ltc_seller_payout_usd(ticket[5]))
                 tx = send_ltc(ticket[9], amount_ltc, ticket[8])
             else:
-                tx = send_usdt(ticket[9], ticket[5], ticket[8], network=usdt_network_from_asset(crypto))
+                tx = send_usdt(ticket[9], seller_payout_usd(ticket[5], crypto), ticket[8], network=usdt_network_from_asset(crypto))
 
             txid = extract_txid(tx)
             provider_error = tx.get("error") if isinstance(tx, dict) else None
@@ -307,6 +339,8 @@ def build_amount_embed(amount, description):
 def build_payment_embed(ticket, wallet_address):
     locked_amount = get_locked_amount_crypto(ticket)
     amount_ltc = locked_amount if (ticket[4] == "LTC" and locked_amount) else (usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5])
+    pay_exact_usd = ltc_deposit_target_usd(ticket[5]) if ticket[4] == "LTC" else ticket[5]
+    seller_receive_usd = seller_payout_usd(ticket[5], ticket[4])
     embed = discord.Embed(
         title=SPARKLES_TITLE,
         description=(
@@ -317,8 +351,11 @@ def build_payment_embed(ticket, wallet_address):
     )
     embed.add_field(name="DEAL ID", value=f"`{ticket[12] or 'pending'}`", inline=False)
     embed.add_field(name="DEAL DESCRIPTION", value=ticket[11] or "No description provided", inline=False)
-    embed.add_field(name="PAY EXACTLY (USD)", value=f"**${ticket[5]:.2f}**", inline=True)
+    embed.add_field(name="PAY EXACTLY (USD)", value=f"**${pay_exact_usd:.2f}**", inline=True)
     embed.add_field(name=f"PAY EXACTLY ({asset_label(ticket[4])})", value=f"**{amount_ltc:.8f} {asset_label(ticket[4])}**", inline=True)
+    # Show seller receives for all assets if fee applies
+    if seller_receive_usd < pay_exact_usd:
+        embed.add_field(name="SELLER RECEIVES (USD)", value=f"**${seller_receive_usd:.2f}**", inline=True)
     embed.add_field(name="ESCROW WALLET", value=f"`{wallet_address}`", inline=False)
     embed.add_field(
         name="IMPORTANT",
@@ -680,7 +717,7 @@ class ConfirmAmountView(ui.View):
                 wallet = generate_ltc_wallet()
             else:
                 wallet = generate_bep20_wallet()
-            locked_amount = usd_to_ltc(ticket[5]) if self.crypto == "LTC" else ticket[5]
+            locked_amount = usd_to_ltc(ltc_deposit_target_usd(ticket[5])) if self.crypto == "LTC" else ticket[5]
             update_ticket(
                 self.ticket_id,
                 wallet_address=wallet["address"],
@@ -830,12 +867,47 @@ class ReleaseRefundView(ui.View):
         if interaction.user.id != ticket[2] and not is_admin_user(interaction.guild, interaction.user):  # buyer or admin starts release flow
             await interaction.followup.send("Only the buyer or an admin can start release.", ephemeral=True)
             return
-        if ticket[6] not in ("paid", "releasing"):
-            await interaction.followup.send(
-                "Release can only start after payment is confirmed.",
-                ephemeral=True,
-            )
-            return
+
+        ticket_status = str(ticket[6] or "").strip().lower()
+        if ticket_status not in ("paid", "releasing"):
+            current_paid = False
+            current_conf = 0
+            current_txid = None
+            current_received = 0.0
+            try:
+                if ticket[7]:
+                    if ticket[4] == "LTC":
+                        required_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
+                        current_paid, current_conf, current_txid, current_received = detect_ltc_payment(
+                            ticket[7],
+                            ticket[5],
+                            required_ltc=required_ltc,
+                        )
+                    else:
+                        current_paid, current_conf, current_txid, current_received = detect_usdt_payment(
+                            ticket[7],
+                            ticket[5],
+                            network=usdt_network_from_asset(ticket[4]),
+                        )
+            except Exception:
+                current_paid = False
+
+            if current_paid and current_conf >= CONFIRMATIONS_REQUIRED:
+                update_ticket(self.ticket_id, status="paid")
+                await audit(
+                    interaction.guild,
+                    self.ticket_id,
+                    "release_status_recovered",
+                    f"from={ticket_status} txid={current_txid} conf={current_conf} received={current_received}",
+                )
+                ticket = get_ticket(self.ticket_id)
+            else:
+                conf_text = f" ({current_conf}/{CONFIRMATIONS_REQUIRED} confirmations)" if current_paid else ""
+                await interaction.followup.send(
+                    f"Release can only start after payment is confirmed{conf_text}.",
+                    ephemeral=True,
+                )
+                return
 
         warning = discord.Embed(
             title=SPARKLES_TITLE,
@@ -1034,10 +1106,12 @@ class ReleaseConfirmView(ui.View):
 
         try:
             if self.crypto == "LTC":
-                amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
+                amount_ltc = usd_to_ltc(ltc_seller_payout_usd(ticket[5]))
                 tx = send_ltc(ticket[9], amount_ltc, ticket[8])
             else:
-                tx = send_usdt(ticket[9], ticket[5], ticket[8], network=usdt_network_from_asset(self.crypto))
+                # Always deduct fee from payout for USDT (BEP-20/ETH)
+                payout_usd = seller_payout_usd(ticket[5], self.crypto)
+                tx = send_usdt(ticket[9], payout_usd, ticket[8], network=usdt_network_from_asset(self.crypto))
 
             txid = extract_txid(tx)
             provider_error = tx.get("error") if isinstance(tx, dict) else None
@@ -1441,6 +1515,13 @@ async def repair_release(ctx, channel_id: int = None):
         await ctx.send("No ticket record found for this channel. Use this command inside the ticket channel or pass its channel ID.")
         return
 
+    original_status = str(ticket[6] or "").strip().lower()
+    repaired_status = ticket[6]
+    if original_status in ("pending_payment", "unconfirmed"):
+        update_ticket(ticket[0], status="paid")
+        repaired_status = "paid"
+        await audit(ctx.guild, ticket[0], "release_repaired_status", f"by={ctx.author.id} from={original_status} to=paid")
+
     embed = discord.Embed(
         title=SPARKLES_TITLE,
         description=(
@@ -1448,7 +1529,7 @@ async def repair_release(ctx, channel_id: int = None):
             f"Buyer: <@{ticket[2]}>\n"
             f"Seller: <@{ticket[3]}>\n"
             f"Crypto: {ticket[4]}\n"
-            f"Status: {ticket[6]}"
+            f"Status: {repaired_status}"
         ),
         color=0x2ECC71,
     )
@@ -1584,10 +1665,10 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
 
     try:
         if ticket[4] == "LTC":
-            amount_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
+            amount_ltc = usd_to_ltc(ltc_seller_payout_usd(ticket[5]))
             tx = send_ltc(payout_address, amount_ltc, ticket[8])
         else:
-            tx = send_usdt(payout_address, ticket[5], ticket[8], network=usdt_network_from_asset(ticket[4]))
+            tx = send_usdt(payout_address, seller_payout_usd(ticket[5], ticket[4]), ticket[8], network=usdt_network_from_asset(ticket[4]))
 
         txid = extract_txid(tx)
         provider_error = tx.get("error") if isinstance(tx, dict) else None
@@ -1732,13 +1813,14 @@ async def proof(ctx, *parts):
     tx_url = None
     if final_txid.lower().startswith("http://") or final_txid.lower().startswith("https://"):
         tx_url = final_txid.split()[0]
-        hash_match = re.search(r"[A-Fa-f0-9]{64}", tx_url)
-        if hash_match:
-            final_txid = hash_match.group(0)
+        cleaned_path = tx_url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+        tx_path_match = re.search(r"/tx(?:/[A-Za-z0-9_-]+)?/([A-Fa-f0-9]{64})$", cleaned_path)
+        if tx_path_match:
+            final_txid = tx_path_match.group(1)
         else:
-            cleaned_path = tx_url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
             last_segment = cleaned_path.rsplit("/", 1)[-1]
-            final_txid = last_segment or final_txid
+            if re.fullmatch(r"[A-Fa-f0-9]{64}", last_segment or ""):
+                final_txid = last_segment
     final_txid = final_txid.replace("[", "").replace("]", "").replace("(", "").replace(")", "")
     amount_ltc = usd_to_ltc(amount_value)
 
@@ -1755,11 +1837,11 @@ async def proof(ctx, *parts):
         tx_display = final_txid or "pending"
     tx_field_value = f"`{tx_display}`"
     tx_target_url = None
-    if tx_url:
-        tx_target_url = tx_url
-        tx_field_value = f"[{tx_display}]({tx_url})"
-    elif final_txid and final_txid != "pending":
+    if final_txid and re.fullmatch(r"[A-Fa-f0-9]{64}", final_txid):
         tx_target_url = ltc_tx_link(final_txid)
+        tx_field_value = f"[{tx_display}]({tx_target_url})"
+    elif tx_url:
+        tx_target_url = tx_url
         tx_field_value = f"[{tx_display}]({tx_target_url})"
     proof_embed.add_field(name="Transaction ID", value=tx_field_value, inline=False)
 

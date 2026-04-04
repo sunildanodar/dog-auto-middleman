@@ -356,8 +356,6 @@ async def panel_recently_posted(channel, lookback_seconds=12):
         if not message.embeds:
             continue
         embed = message.embeds[0]
-        if embed.title != SPARKLES_TITLE:
-            continue
         if embed.description and "AUTO MIDDLEMAN PANEL" in embed.description:
             return True
     return False
@@ -1131,6 +1129,23 @@ class RequestUSDTETHView(ui.View):
         await interaction.response.send_modal(RequestModal("USDT_ETH"))
 
 
+class SparklesPanelView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="LTC", style=discord.ButtonStyle.primary, emoji="🪙", custom_id="sparkles_panel_request_ltc", row=0)
+    async def ltc(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("LTC"))
+
+    @ui.button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, emoji="💎", custom_id="sparkles_panel_request_usdt_bep20", row=0)
+    async def usdt_bep20(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("USDT_BEP20"))
+
+    @ui.button(label="USDT [ETH]", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="sparkles_panel_request_usdt_eth", row=0)
+    async def usdt_eth(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("USDT_ETH"))
+
+
 @bot.command()
 async def panel(ctx):
     await asyncio.sleep(random.uniform(0.25, 0.9))
@@ -1141,41 +1156,24 @@ async def panel(ctx):
         title="SPARKLES AUTO MIDDLEMAN",
         description=(
             "**AUTO MIDDLEMAN PANEL**\n\n"
-            "**FREE SERVICE | SECURE ESCROW**\n"
-            "**READ THIS BEFORE OPENING A DEAL:**\n"
-            "- **Accept ToS before creating deals.**\n"
-            "- **Only use controls shown by the bot.**\n"
-            "- **Buyer and seller must both confirm ticket details.**"
+            "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
+            "Clean flow. Fast setup. Secure release.\n\n"
+            "**AVAILABLE NETWORKS**\n"
+            "**LTC** - Litecoin escrow deals\n"
+            "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
+            "**USDT [ETH]** - USDT on Ethereum\n\n"
+            "**HOW IT WORKS**\n"
+            "Buyer and seller confirm terms, fund escrow, then release safely through the bot."
         ),
-        color=0x111827
+        color=0x111827,
     )
-    main_embed.set_footer(text="Dog Escrow | Fast, secure, monitored")
+    main_embed.add_field(name="LTC", value="`Fast Litecoin middleman deals`", inline=True)
+    main_embed.add_field(name="USDT [BEP-20]", value="`Best for BNB Smart Chain trades`", inline=True)
+    main_embed.add_field(name="USDT [ETH]", value="`ERC-20 escrow on Ethereum`", inline=True)
+    main_embed.add_field(name="Open A Deal", value="Use the buttons below in this order: `LTC`, `BEP-20`, `USDT ETH`.", inline=False)
+    main_embed.set_footer(text="Sparkles Auto Middleman")
 
-    ltc_embed = discord.Embed(
-        title="REQUEST LITECOIN",
-        description="**NETWORK:** LTC\n**USE THIS FOR:** Litecoin middleman deals.",
-        color=0x5865F2,
-    )
-    ltc_embed.set_footer(text=SPARKLES_FOOTER)
-
-    usdt_bep20_embed = discord.Embed(
-        title="REQUEST USDT [BEP-20]",
-        description="**NETWORK:** BSC (BEP-20)\n**USE THIS FOR:** USDT on BNB Smart Chain.",
-        color=0x10B981,
-    )
-    usdt_bep20_embed.set_footer(text=SPARKLES_FOOTER)
-
-    usdt_eth_embed = discord.Embed(
-        title="REQUEST USDT [ETH]",
-        description="**NETWORK:** Ethereum (ERC-20)\n**USE THIS FOR:** USDT on Ethereum.",
-        color=0x3B82F6,
-    )
-    usdt_eth_embed.set_footer(text=SPARKLES_FOOTER)
-
-    await ctx.send(embed=main_embed)
-    await ctx.send(embed=ltc_embed, view=RequestLTCView())
-    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
-    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
+    await ctx.send(embed=main_embed, view=SparklesPanelView())
 
 
 def build_commands_overview_lines():
@@ -1731,22 +1729,26 @@ async def proof(ctx, *parts):
         return
 
     final_txid = sanitize_txid_text(txid)
-    if "http://" in final_txid or "https://" in final_txid:
-        chunks = [chunk for chunk in final_txid.split("/") if chunk]
-        if chunks:
-            final_txid = chunks[-1].split("?", 1)[0].split("#", 1)[0]
+    tx_url = None
+    if final_txid.lower().startswith("http://") or final_txid.lower().startswith("https://"):
+        tx_url = final_txid.split()[0]
     final_txid = final_txid.replace("[", "").replace("]", "").replace("(", "").replace(")", "")
     amount_ltc = usd_to_ltc(amount_value)
 
     proof_embed = discord.Embed(
         title="◔ · Trade Completed",
+        description=f"**{amount_ltc:.8f} LTC (${amount_value:.2f} USD)**",
         color=0x111827,
     )
-    proof_embed.add_field(name="Amount", value=f"`{amount_ltc:.8f} LTC (${amount_value:.2f} USD)`", inline=False)
     proof_embed.add_field(name="Sender", value="`Anonymous`", inline=True)
     proof_embed.add_field(name="Receiver", value="`Anonymous`", inline=True)
-    proof_embed.add_field(name="Transaction ID", value=f"`{final_txid}`", inline=False)
-    proof_embed.set_footer(text="Dog Escrow")
+    tx_display = short_txid(final_txid)
+    tx_field_value = f"`{tx_display}`"
+    if tx_url:
+        tx_field_value = f"[{tx_display}]({tx_url})"
+    elif final_txid and final_txid != "pending":
+        tx_field_value = f"[{tx_display}]({ltc_tx_link(final_txid)})"
+    proof_embed.add_field(name="Transaction ID", value=tx_field_value, inline=False)
 
     target_channel = ctx.guild.get_channel(PROOF_CHANNEL_ID) if (ctx.guild and PROOF_CHANNEL_ID > 0) else ctx.channel
     if not target_channel:
@@ -1899,6 +1901,7 @@ async def on_ready():
             bot.add_view(RequestLTCView())
             bot.add_view(RequestUSDTBEP20View())
             bot.add_view(RequestUSDTETHView())
+            bot.add_view(SparklesPanelView())
             payment_view_registered = True
         except Exception as exc:
             print(f"Persistent view registration failed: {exc}")

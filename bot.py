@@ -1834,7 +1834,7 @@ async def proof(ctx, *parts):
         color = 0x10B981
 
     if asset == "LTC":
-        # Fetch a real LTC transaction closest to the requested USD amount
+        # Always use a real LTC transaction, even if not exact
         try:
             price_resp = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd")
             price_json = price_resp.json() if price_resp.ok else {}
@@ -1871,37 +1871,16 @@ async def proof(ctx, *parts):
                 if diff < min_diff:
                     min_diff = diff
                     found = tx
-            # Accept only if within 10% of requested USD value, otherwise simulate
             if found:
                 total_out = sum(out.get("value", 0) for out in found.get("outputs", [])) / 1e8
-                usd_value = total_out * ltc_price
-                if abs(usd_value - amount_value) / amount_value <= 0.10:
-                    final_txid = found["hash"]
-                    amount_crypto = total_out
-                else:
-                    # Simulate a transaction with exact amount
-                    amount_crypto = ltc_amount
-                    final_txid = f"simulated-{amount_value:.2f}usd-{int(time.time())}"
+                amount_crypto = total_out
+                final_txid = found["hash"]
             else:
-                # Simulate a transaction with exact amount
                 amount_crypto = ltc_amount
-                final_txid = f"simulated-{amount_value:.2f}usd-{int(time.time())}"
+                final_txid = None
         except Exception as e:
-            # Simulate a transaction with exact amount if any error
             amount_crypto = None
-            try:
-                price_resp = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd")
-                price_json = price_resp.json() if price_resp.ok else {}
-                ltc_price = price_json.get("litecoin", {}).get("usd")
-                if not ltc_price:
-                    cc_resp = requests.get("https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD")
-                    cc_json = cc_resp.json() if cc_resp.ok else {}
-                    ltc_price = cc_json.get("USD")
-                if ltc_price:
-                    amount_crypto = amount_value / ltc_price
-            except Exception:
-                amount_crypto = None
-            final_txid = f"simulated-{amount_value:.2f}usd-{int(time.time())}"
+            final_txid = None
         proof_color = 0x111827
         explorer_func = ltc_tx_link
         asset_label_display = "LTC"
@@ -1936,22 +1915,17 @@ async def proof(ctx, *parts):
     proof_embed.add_field(name="**Transaction ID**", value=tx_field_value, inline=False)
 
     target_channel = ctx.guild.get_channel(PROOF_CHANNEL_ID) if (ctx.guild and PROOF_CHANNEL_ID > 0) else ctx.channel
-    if not target_channel:
-        await ctx.send("Proof channel not found. Set PROOF_CHANNEL_ID or run command in the target channel.")
-        return
-
     proof_view = None
     if tx_target_url:
         proof_view = ui.View(timeout=None)
         proof_view.add_item(ui.Button(label="View Payment", style=discord.ButtonStyle.link, url=tx_target_url))
 
-    # Only post once, no duplicates
+    # Only post once, no duplicates, no fallback
     try:
         await target_channel.send(embed=proof_embed, view=proof_view, allowed_mentions=discord.AllowedMentions.none())
-        return  # Ensure only one message is sent
     except Exception as exc:
+        # Log or notify only the command invoker, but do not send a second proof
         await ctx.send(f"Failed to send proof message: `{str(exc)[:300]}`")
-        return
 
 
 @bot.command()

@@ -1833,28 +1833,63 @@ async def proof(ctx, *parts):
         tx_link_func = lambda txid: f"https://bscscan.com/tx/{txid}"
         color = 0x10B981
 
-    amount_crypto = usd_to_ltc(amount_value) if asset == "LTC" else amount_value
+    if asset == "LTC":
+        # Fetch a real LTC transaction close to the requested USD amount
+        try:
+            ltc_price = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd").json()["litecoin"]["usd"]
+            ltc_amount = amount_value / ltc_price
+            # Get recent LTC transactions (BlockCypher API)
+            api_url = f"https://api.blockcypher.com/v1/ltc/main/txs"
+            txs = requests.get(api_url).json().get("txs", [])
+            random.shuffle(txs)
+            found = None
+            for tx in txs:
+                # Sum outputs for each transaction
+                total_out = sum(out.get("value", 0) for out in tx.get("outputs", [])) / 1e8
+                if abs(total_out - ltc_amount) < 0.01:
+                    found = tx
+                    break
+            if found:
+                final_txid = found["hash"]
+                amount_crypto = sum(out.get("value", 0) for out in found.get("outputs", [])) / 1e8
+            else:
+                await ctx.send(f"No real LTC transaction found near ${amount_value:.2f}. Try a different amount.")
+                return
+        except Exception as e:
+            await ctx.send(f"Error fetching real LTC transaction: {e}")
+            return
+        proof_color = 0x111827
+        explorer_func = ltc_tx_link
+        asset_label_display = "LTC"
+        emoji = "🕓"
+    else:
+        amount_crypto = amount_value
+        proof_color = 0x10B981
+        explorer_func = lambda txid: f"https://bscscan.com/tx/{txid}"
+        asset_label_display = "USDT [BEP-20]"
+        emoji = "💵"
 
     proof_embed = discord.Embed(
-        title="• Trade Completed",
-        description=f"{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)",
-        color=color,
+        title=f"{emoji} • Trade Completed",
+        description=f"**{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)**",
+        color=proof_color,
     )
-    proof_embed.add_field(name="Sender", value="Anonymous", inline=True)
-    proof_embed.add_field(name="Receiver", value="Anonymous", inline=True)
-    if final_txid and len(final_txid) > 21:
-        tx_display = f"{final_txid[:9]}...{final_txid[-9:]}"
+    proof_embed.add_field(name="**Sender**", value="`Anonymous`", inline=True)
+    proof_embed.add_field(name="**Receiver**", value="`Anonymous`", inline=True)
+
+    if final_txid and len(final_txid) > 16:
+        tx_display = f"{final_txid[:8]}...{final_txid[-8:]}"
     else:
         tx_display = final_txid or "pending"
-    tx_field_value = f"{tx_display}"
+    tx_field_value = tx_display
     tx_target_url = None
     if final_txid and re.fullmatch(r"[A-Fa-f0-9]{64}", final_txid):
-        tx_target_url = tx_link_func(final_txid)
+        tx_target_url = explorer_func(final_txid)
         tx_field_value = f"[{tx_display}]({tx_target_url})"
     elif tx_url:
         tx_target_url = tx_url
         tx_field_value = f"[{tx_display}]({tx_target_url})"
-    proof_embed.add_field(name="Transaction ID", value=tx_field_value, inline=False)
+    proof_embed.add_field(name="**Transaction ID**", value=tx_field_value, inline=False)
 
     target_channel = ctx.guild.get_channel(PROOF_CHANNEL_ID) if (ctx.guild and PROOF_CHANNEL_ID > 0) else ctx.channel
     if not target_channel:

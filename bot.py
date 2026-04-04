@@ -64,28 +64,28 @@ async def panel(ctx):
     embed.set_footer(text="Dog Auto Middleman")
 
 
-    # LTC panel (clean, bold, single emoji)
+    # LTC panel (Sparkles style: custom emoji, bold, layout)
     ltc_embed = discord.Embed(
-        title="🪙 **Request Litecoin** 🪙",
+        title=":4887ltc: **· REQUEST LITECOIN ·** :4887ltc:",
         color=0x23272A
     )
-    ltc_embed.add_field(name="\u200b", value="[  Request LTC  ]", inline=False)
+    ltc_embed.add_field(name="\u200b", value="[  REQUEST LTC  ]", inline=False)
 
-    # USDT BEP-20 panel (clean, bold, single emoji)
+    # USDT BEP-20 panel (Sparkles style: custom emoji, bold, layout)
     usdt_bep20_embed = discord.Embed(
-        title="💎 **Request USDT [BEP-20]** 💎",
-        description=":vertical_bar: Network: BSC (BEP-20)",
+        title=":7868usdt: **· REQUEST USDT [BEP-20] ·** :7868usdt:",
+        description=":7868usdt: **NETWORK: BSC (BEP-20)**",
         color=0x10B981
     )
-    usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
+    usdt_bep20_embed.add_field(name="\u200b", value="[  REQUEST USDT [BEP-20]  ]", inline=False)
 
-    # USDT ETH panel (clean, bold, single emoji)
+    # USDT ETH panel (Sparkles style: custom emoji, bold, layout)
     usdt_eth_embed = discord.Embed(
-        title="💠 **Request USDT [ETH]** 💠",
-        description=":vertical_bar: Network: Ethereum",
+        title=":7868usdt: **· REQUEST USDT [ETH] ·** :7868usdt:",
+        description=":7868usdt: **NETWORK: ETHEREUM**",
         color=0x6366F1
     )
-    usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
+    usdt_eth_embed.add_field(name="\u200b", value="[  REQUEST USDT [ETH]  ]", inline=False)
 
     await ctx.send(embed=embed)
     await ctx.send(embed=ltc_embed, view=RequestLTCView())

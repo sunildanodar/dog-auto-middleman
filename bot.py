@@ -1790,7 +1790,7 @@ async def proof(ctx, *parts):
         return
 
     if not parts:
-        amount_value = float(random.randint(1, 180))
+        amount_value = float(random.randint(1, 67))
         full_input = f"{int(amount_value)} dollars"
         txid = generate_random_txid()
     else:

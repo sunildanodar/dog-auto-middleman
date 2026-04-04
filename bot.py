@@ -1273,34 +1273,6 @@ class SparklesPanelView(ui.View):
         await interaction.response.send_modal(RequestModal("USDT_ETH"))
 
 
-@bot.command()
-async def panel(ctx):
-    await asyncio.sleep(random.uniform(0.25, 0.9))
-    if await panel_recently_posted(ctx.channel):
-        return
-
-    main_embed = discord.Embed(
-        title="SPARKLES AUTO MIDDLEMAN",
-        description=(
-            "**AUTO MIDDLEMAN PANEL**\n\n"
-            "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
-            "Clean flow. Fast setup. Secure release.\n\n"
-            "**AVAILABLE NETWORKS**\n"
-            "**LTC** - Litecoin escrow deals\n"
-            "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
-            "**USDT [ETH]** - USDT on Ethereum\n\n"
-            "**HOW IT WORKS**\n"
-            "Buyer and seller confirm terms, fund escrow, then release safely through the bot."
-        ),
-        color=0x111827,
-    )
-    main_embed.add_field(name="LTC", value="`Fast Litecoin middleman deals`", inline=True)
-    main_embed.add_field(name="USDT [BEP-20]", value="`Best for BNB Smart Chain trades`", inline=True)
-    main_embed.add_field(name="USDT [ETH]", value="`ERC-20 escrow on Ethereum`", inline=True)
-    main_embed.add_field(name="Open A Deal", value="Use the buttons below in this order: `LTC`, `BEP-20`, `USDT ETH`.", inline=False)
-    main_embed.set_footer(text="Sparkles Auto Middleman")
-
-    await ctx.send(embed=main_embed, view=SparklesPanelView())
 
 
 def build_commands_overview_lines():

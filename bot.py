@@ -1834,29 +1834,34 @@ async def proof(ctx, *parts):
         color = 0x10B981
 
     if asset == "LTC":
-        # Fetch a real LTC transaction close to the requested USD amount
+        # Fetch a real LTC transaction closest to the requested USD amount
         try:
-            ltc_price = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd").json()["litecoin"]["usd"]
+            price_resp = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd")
+            price_json = price_resp.json() if price_resp.ok else {}
+            ltc_price = price_json.get("litecoin", {}).get("usd")
+            if not ltc_price:
+                await ctx.send("Could not fetch LTC price from CoinGecko. Please try again later.")
+                return
             ltc_amount = amount_value / ltc_price
             # Get recent LTC transactions (BlockCypher API)
             api_url = f"https://api.blockcypher.com/v1/ltc/main/txs"
             txs = requests.get(api_url).json().get("txs", [])
-            random.shuffle(txs)
             found = None
+            min_diff = float('inf')
             for tx in txs:
-                # Sum outputs for each transaction
                 total_out = sum(out.get("value", 0) for out in tx.get("outputs", [])) / 1e8
-                if abs(total_out - ltc_amount) < 0.01:
+                diff = abs(total_out - ltc_amount)
+                if diff < min_diff:
+                    min_diff = diff
                     found = tx
-                    break
             if found:
                 final_txid = found["hash"]
                 amount_crypto = sum(out.get("value", 0) for out in found.get("outputs", [])) / 1e8
             else:
-                await ctx.send(f"No real LTC transaction found near ${amount_value:.2f}. Try a different amount.")
+                await ctx.send(f"No real LTC transaction found. Try again later.")
                 return
         except Exception as e:
-            await ctx.send(f"Error fetching real LTC transaction: {e}")
+            await ctx.send(f"Error fetching LTC price or transaction: {e}")
             return
         proof_color = 0x111827
         explorer_func = ltc_tx_link

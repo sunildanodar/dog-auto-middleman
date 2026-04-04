@@ -1732,6 +1732,13 @@ async def proof(ctx, *parts):
     tx_url = None
     if final_txid.lower().startswith("http://") or final_txid.lower().startswith("https://"):
         tx_url = final_txid.split()[0]
+        hash_match = re.search(r"[A-Fa-f0-9]{64}", tx_url)
+        if hash_match:
+            final_txid = hash_match.group(0)
+        else:
+            cleaned_path = tx_url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+            last_segment = cleaned_path.rsplit("/", 1)[-1]
+            final_txid = last_segment or final_txid
     final_txid = final_txid.replace("[", "").replace("]", "").replace("(", "").replace(")", "")
     amount_ltc = usd_to_ltc(amount_value)
 
@@ -1742,12 +1749,18 @@ async def proof(ctx, *parts):
     )
     proof_embed.add_field(name="Sender", value="`Anonymous`", inline=True)
     proof_embed.add_field(name="Receiver", value="`Anonymous`", inline=True)
-    tx_display = short_txid(final_txid)
+    if final_txid and len(final_txid) > 21:
+        tx_display = f"{final_txid[:9]}...{final_txid[-9:]}"
+    else:
+        tx_display = final_txid or "pending"
     tx_field_value = f"`{tx_display}`"
+    tx_target_url = None
     if tx_url:
+        tx_target_url = tx_url
         tx_field_value = f"[{tx_display}]({tx_url})"
     elif final_txid and final_txid != "pending":
-        tx_field_value = f"[{tx_display}]({ltc_tx_link(final_txid)})"
+        tx_target_url = ltc_tx_link(final_txid)
+        tx_field_value = f"[{tx_display}]({tx_target_url})"
     proof_embed.add_field(name="Transaction ID", value=tx_field_value, inline=False)
 
     target_channel = ctx.guild.get_channel(PROOF_CHANNEL_ID) if (ctx.guild and PROOF_CHANNEL_ID > 0) else ctx.channel
@@ -1755,8 +1768,13 @@ async def proof(ctx, *parts):
         await ctx.send("Proof channel not found. Set PROOF_CHANNEL_ID or run command in the target channel.")
         return
 
+    proof_view = None
+    if tx_target_url:
+        proof_view = ui.View(timeout=None)
+        proof_view.add_item(ui.Button(label="View Payment", style=discord.ButtonStyle.link, url=tx_target_url))
+
     try:
-        await target_channel.send(embed=proof_embed, allowed_mentions=discord.AllowedMentions.none())
+        await target_channel.send(embed=proof_embed, view=proof_view, allowed_mentions=discord.AllowedMentions.none())
     except Exception as exc:
         await ctx.send(f"Failed to send proof message: `{str(exc)[:300]}`")
         return

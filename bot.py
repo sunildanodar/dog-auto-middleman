@@ -1919,18 +1919,19 @@ async def proof(ctx, *parts):
         asset_label_display = "USDT [BEP-20]"
         tx_link_func = lambda txid: f"https://bscscan.com/tx/{txid}"
 
+    # Make USDT proof embed exactly like LTC (not big, same style)
     proof_embed = discord.Embed(
-        title="◔ · Trade Completed",
-        description=f"**{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)**",
+        title="• Trade Completed",
+        description=f"{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)",
         color=0x111827,
     )
-    proof_embed.add_field(name="Sender", value="`Anonymous`", inline=True)
-    proof_embed.add_field(name="Receiver", value="`Anonymous`", inline=True)
+    proof_embed.add_field(name="Sender", value="Anonymous", inline=True)
+    proof_embed.add_field(name="Receiver", value="Anonymous", inline=True)
     if final_txid and len(final_txid) > 21:
         tx_display = f"{final_txid[:9]}...{final_txid[-9:]}"
     else:
         tx_display = final_txid or "pending"
-    tx_field_value = f"`{tx_display}`"
+    tx_field_value = f"{tx_display}"
     tx_target_url = None
     if final_txid and re.fullmatch(r"[A-Fa-f0-9]{64}", final_txid):
         tx_target_url = tx_link_func(final_txid)
@@ -1950,6 +1951,7 @@ async def proof(ctx, *parts):
         proof_view = ui.View(timeout=None)
         proof_view.add_item(ui.Button(label="View Payment", style=discord.ButtonStyle.link, url=tx_target_url))
 
+    # Only post once, no duplicates
     try:
         await target_channel.send(embed=proof_embed, view=proof_view, allowed_mentions=discord.AllowedMentions.none())
     except Exception as exc:

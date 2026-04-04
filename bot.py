@@ -1784,8 +1784,6 @@ async def generate_proof(ctx, channel_id: int = None):
 async def proof(ctx, *parts):
     # DEBUG LOGGING: Print every time proof is called
     print(f"[DEBUG] proof command called by user={getattr(ctx.author, 'id', None)} in channel={getattr(ctx.channel, 'id', None)} with parts={parts}")
-    if not await enforce_sensitive_cooldown(ctx, "proof"):
-        return
     if not is_admin_user(ctx.guild, ctx.author):
         await ctx.send("Only the configured admin or server owner can use this command.")
         return

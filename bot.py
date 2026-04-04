@@ -38,38 +38,45 @@ payment_view_registered = False
 backup_task_started = False
 security_alert_last_sent = {}
 
-@bot.command(name='sparkles_panel', help='Show Sparkles-style panel with all options')
-async def sparkles_panel(ctx):
+@bot.command(name='panel', help='Show Dog Auto Middleman panel with all options')
+async def panel(ctx):
+    # Main info panel
     embed = discord.Embed(
-        title="✨ Dog Auto Middleman ✨",
+        title="Dog Auto Middleman",
         description=(
-            "**Free Service**\n"
-            "• Read our ToS before using the bot: <#TOS_CHANNEL_ID>\n"
-            "• The ToS in <#MM_TOS_CHANNEL_ID> also apply here.**\n"
-            "───────────────────────────────"
+            "**Paid Service**\n"
+            "\n"
+            "- Read our ToS before using the bot: <#TOS_CHANNEL_ID>\n"
+            "- The ToS in <#MM_TOS_CHANNEL_ID> also apply here.\n"
+            "\n"
+            "───────────────────────────────\n"
+            "**Fees:**\n"
+            "- Deals $250+: $1.50\n"
+            "- Deals under $250: $0.50\n"
+            "- Deals under $50 are FREE\n"
         ),
         color=0x23272A
     )
     embed.set_footer(text="Tutorial")
 
-    # Panel for LTC
+    # LTC panel
     ltc_embed = discord.Embed(
-        title="• Request Litecoin •",
+        title="· Request Litecoin ·",
         color=0x23272A
     )
     ltc_embed.add_field(name="\u200b", value="[  Request LTC  ]", inline=False)
 
-    # Panel for USDT BEP-20
+    # USDT BEP-20 panel
     usdt_bep20_embed = discord.Embed(
-        title="• Request USDT [BEP-20] •",
+        title="· Request USDT [BEP-20] ·",
         description="Network: BSC (BEP-20)",
         color=0x10B981
     )
     usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
 
-    # Panel for USDT ETH
+    # USDT ETH panel
     usdt_eth_embed = discord.Embed(
-        title="• Request USDT [ETH] •",
+        title="· Request USDT [ETH] ·",
         description="Network: Ethereum",
         color=0x6366F1
     )

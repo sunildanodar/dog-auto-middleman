@@ -63,16 +63,17 @@ async def panel(ctx):
     )
     embed.set_footer(text="Dog Auto Middleman")
 
-    # LTC panel (bigger, bold, with emoji)
+
+    # LTC panel (bigger, bold, with Unicode emoji)
     ltc_embed = discord.Embed(
-        title="<:ltc:> **• Request Litecoin •** <:ltc:>",
+        title="🪙 **• Request Litecoin •** 🪙",
         color=0x23272A
     )
     ltc_embed.add_field(name="\u200b", value="**[  Request LTC  ]**", inline=False)
 
-    # USDT BEP-20 panel (bigger, bold, with emoji)
+    # USDT BEP-20 panel (bigger, bold, with Unicode emoji)
     usdt_bep20_embed = discord.Embed(
-        title="<:usdt:> **• Request USDT [BEP-20] •** <:usdt:>",
+        title="💎 **• Request USDT [BEP-20] •** 💎",
         description=":vertical_bar: **Network:** **BSC (BEP-20)**",
         color=0x10B981
     )

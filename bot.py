@@ -1781,6 +1781,8 @@ async def generate_proof(ctx, channel_id: int = None):
 
 @bot.command(name="proof")
 async def proof(ctx, *parts):
+    # DEBUG LOGGING: Print every time proof is called
+    print(f"[DEBUG] proof command called by user={getattr(ctx.author, 'id', None)} in channel={getattr(ctx.channel, 'id', None)} with parts={parts}")
     if not await enforce_sensitive_cooldown(ctx, "proof"):
         return
     if not is_admin_user(ctx.guild, ctx.author):

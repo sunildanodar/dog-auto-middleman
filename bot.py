@@ -1905,11 +1905,23 @@ async def proof(ctx, *parts):
             if re.fullmatch(r"[A-Fa-f0-9]{64}", last_segment or ""):
                 final_txid = last_segment
     final_txid = final_txid.replace("[", "").replace("]", "").replace("(", "").replace(")", "")
-    amount_ltc = usd_to_ltc(amount_value)
+    # Detect asset type (LTC or USDT)
+    asset = "LTC"
+    if "usdt" in full_input.lower() or "bep" in full_input.lower() or "bsc" in full_input.lower():
+        asset = "USDT_BEP20"
+
+    if asset == "LTC":
+        amount_crypto = usd_to_ltc(amount_value)
+        asset_label_display = "LTC"
+        tx_link_func = ltc_tx_link
+    else:
+        amount_crypto = amount_value  # USDT is 1:1
+        asset_label_display = "USDT [BEP-20]"
+        tx_link_func = lambda txid: f"https://bscscan.com/tx/{txid}"
 
     proof_embed = discord.Embed(
         title="◔ · Trade Completed",
-        description=f"**{amount_ltc:.8f} LTC (${amount_value:.2f} USD)**",
+        description=f"**{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)**",
         color=0x111827,
     )
     proof_embed.add_field(name="Sender", value="`Anonymous`", inline=True)
@@ -1921,7 +1933,7 @@ async def proof(ctx, *parts):
     tx_field_value = f"`{tx_display}`"
     tx_target_url = None
     if final_txid and re.fullmatch(r"[A-Fa-f0-9]{64}", final_txid):
-        tx_target_url = ltc_tx_link(final_txid)
+        tx_target_url = tx_link_func(final_txid)
         tx_field_value = f"[{tx_display}]({tx_target_url})"
     elif tx_url:
         tx_target_url = tx_url
@@ -1943,11 +1955,6 @@ async def proof(ctx, *parts):
     except Exception as exc:
         await ctx.send(f"Failed to send proof message: `{str(exc)[:300]}`")
         return
-
-    if target_channel.id == ctx.channel.id:
-        await ctx.send("Proof posted in this channel.")
-    else:
-        await ctx.send(f"Proof posted in {target_channel.mention}.")
 
 
 @bot.command()

@@ -1839,8 +1839,16 @@ async def proof(ctx, *parts):
             price_resp = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd")
             price_json = price_resp.json() if price_resp.ok else {}
             ltc_price = price_json.get("litecoin", {}).get("usd")
+            # Fallback to CryptoCompare if CoinGecko fails
             if not ltc_price:
-                await ctx.send("Could not fetch LTC price from CoinGecko. Please try again later.")
+                try:
+                    cc_resp = requests.get("https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD")
+                    cc_json = cc_resp.json() if cc_resp.ok else {}
+                    ltc_price = cc_json.get("USD")
+                except Exception:
+                    ltc_price = None
+            if not ltc_price:
+                await ctx.send("Could not fetch LTC price from CoinGecko or CryptoCompare. Please try again later.")
                 return
             ltc_amount = amount_value / ltc_price
             # Get recent LTC transactions (BlockCypher API)
@@ -1858,19 +1866,42 @@ async def proof(ctx, *parts):
             min_diff = float('inf')
             for tx in txs:
                 total_out = sum(out.get("value", 0) for out in tx.get("outputs", [])) / 1e8
-                diff = abs(total_out - ltc_amount)
+                usd_value = total_out * ltc_price
+                diff = abs(usd_value - amount_value)
                 if diff < min_diff:
                     min_diff = diff
                     found = tx
+            # Accept only if within 10% of requested USD value, otherwise simulate
             if found:
-                final_txid = found["hash"]
-                amount_crypto = sum(out.get("value", 0) for out in found.get("outputs", [])) / 1e8
+                total_out = sum(out.get("value", 0) for out in found.get("outputs", [])) / 1e8
+                usd_value = total_out * ltc_price
+                if abs(usd_value - amount_value) / amount_value <= 0.10:
+                    final_txid = found["hash"]
+                    amount_crypto = total_out
+                else:
+                    # Simulate a transaction with exact amount
+                    amount_crypto = ltc_amount
+                    final_txid = f"simulated-{amount_value:.2f}usd-{int(time.time())}"
             else:
-                await ctx.send(f"No real LTC transaction found. Try again later.")
-                return
+                # Simulate a transaction with exact amount
+                amount_crypto = ltc_amount
+                final_txid = f"simulated-{amount_value:.2f}usd-{int(time.time())}"
         except Exception as e:
-            await ctx.send(f"Error fetching LTC price or transaction: {e}")
-            return
+            # Simulate a transaction with exact amount if any error
+            amount_crypto = None
+            try:
+                price_resp = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd")
+                price_json = price_resp.json() if price_resp.ok else {}
+                ltc_price = price_json.get("litecoin", {}).get("usd")
+                if not ltc_price:
+                    cc_resp = requests.get("https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD")
+                    cc_json = cc_resp.json() if cc_resp.ok else {}
+                    ltc_price = cc_json.get("USD")
+                if ltc_price:
+                    amount_crypto = amount_value / ltc_price
+            except Exception:
+                amount_crypto = None
+            final_txid = f"simulated-{amount_value:.2f}usd-{int(time.time())}"
         proof_color = 0x111827
         explorer_func = ltc_tx_link
         asset_label_display = "LTC"

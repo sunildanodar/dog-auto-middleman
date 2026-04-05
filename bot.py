@@ -46,7 +46,7 @@ async def panel(ctx):
         @bot.command(name="panel", aliases=["start", "open", "main"])
         async def panel(ctx):
             embed = discord.Embed(
-                title="Dog Auto Middleman",
+                title="SPARKLES AUTO MIDDLEMAN",
                 description=(
                     "**AUTO MIDDLEMAN PANEL**\n"
                     "\n"
@@ -54,25 +54,30 @@ async def panel(ctx):
                     "Clean flow. Fast setup. Secure release.\n"
                     "\n"
                     "**AVAILABLE NETWORKS**\n"
-                    "LTC - Litecoin escrow deals\n"
-                    "USDT [BEP-20] - USDT on BNB Smart Chain\n"
-                    "USDT [ETH] - USDT on Ethereum\n"
+                    "**LTC** - Litecoin escrow deals\n"
+                    "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
+                    "**USDT [ETH]** - USDT on Ethereum\n"
                     "\n"
                     "**HOW IT WORKS**\n"
                     "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n"
                     "\n"
-                    "LTC                USDT [BEP-20]           USDT [ETH]\n"
-                    "`Fast Litecoin`    `Best for BNB Smart`    `ERC-20 escrow on`\n"
-                    "`middleman deals` `Chain trades`           `Ethereum`\n"
+                    "**LTC**              **USDT [BEP-20]**         **USDT [ETH]**\n"
+                    "`Fast Litecoin`      `Best for BNB Smart`     `ERC-20 escrow on`\n"
+                    "`middleman deals`    `Chain trades`            `Ethereum`\n"
                     "\n"
                     "**Open A Deal**\n"
                     "Use the buttons below in this order: `LTC, BEP-20, USDT ETH`."
                 ),
                 color=0x23272A,
             )
-            embed.set_footer(text="Dog Auto Middleman")
-            view = SparklesPanelView()
-            await ctx.send(embed=embed, view=view)
+            embed.set_footer(text="Sparkles Auto Middleman")
+            class PanelButtons(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=None)
+                    self.add_item(discord.ui.Button(label="LTC", style=discord.ButtonStyle.primary, emoji="🪙", custom_id="panel_request_ltc"))
+                    self.add_item(discord.ui.Button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, emoji="💎", custom_id="panel_request_usdt_bep20"))
+                    self.add_item(discord.ui.Button(label="USDT [ETH]", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="panel_request_usdt_eth"))
+            await ctx.send(embed=embed, view=PanelButtons())
     usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
 

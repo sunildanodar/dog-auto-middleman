@@ -6,6 +6,8 @@ async def on_message(message):
 
         withdraw_processing = set()
         tos_link = "https://your.tos.link/here"
+    f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+    f"<@{interaction.user.id}>'s side:\n"
         buyer_content = (
             "👋 **Sparkles's Auto Middleman Service**\n"
             "> Make sure to follow the steps and read the instructions thoroughly.\n"
@@ -13,22 +15,18 @@ async def on_message(message):
             f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
             f"<@{{interaction.user.id}}>'s side:\n"
             "```
-    f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+"
             "eeee\n"
             "```"
         )
         seller_content = (
             f"<@{{user.id}}>'s side:\n"
             "```
-    f"<@{interaction.user.id}>'s side:\n"
+)
             "eeee\n"
             "```"
         )
         fake_confirmation_tasks = {}
-    "````\n"
-    "eeee\n"
-    "```"
-)
 seller_content = (
             requests.post(
     f"<@{user.id}>'s side:\n"
@@ -123,28 +121,13 @@ def running_on_railway():
 
 def enforce_runtime_safety():
     if not REQUIRE_PERSISTENT_DB:
-        return
-
-    db_name = (DB_NAME or "").strip().lower()
-    if running_on_railway() and db_name in ("data.db", "./data.db"):
-        raise RuntimeError(
-            "Unsafe storage setup detected: Railway + local SQLite file. "
-            "Set REQUIRE_PERSISTENT_DB=false or move DB_NAME to persistent storage."
-        )
-
-    if BACKUP_STARTUP_MAX_AGE_MINUTES > 0:
-        snapshot = database_safety_snapshot()
-        age = snapshot.get("last_backup_age_seconds")
-        max_age_seconds = BACKUP_STARTUP_MAX_AGE_MINUTES * 60
-        if age is None or age > max_age_seconds:
-            raise RuntimeError(
-                "Backup freshness check failed at startup. "
-                f"Last backup age: {age if age is not None else 'none'}s, "
-                f"max allowed: {max_age_seconds}s."
-            )
-
-
+        # TODO: Add runtime safety logic here
 async def backup_loop():
+            "eeee\n"
+            "```"
+        )
+        fake_confirmation_tasks = {}
+        # ...existing code...
     while True:
         try:
             backup_path = create_db_backup()

@@ -2,42 +2,29 @@
 async def on_message(message):
     # Ignore bot messages
     if message.author.bot:
-        return
+        import requests
 
-    # Check if this is a ticket channel
-    ticket = get_ticket_by_channel(message.channel.id)
-    if ticket:
-        # Only allow messages if USD amount is set and confirmed (status 'pending_payment' or later)
-        status = str(ticket[6] or "").lower()
-        if status not in ("pending_payment", "unconfirmed", "paid", "releasing", "completed"):
-            try:
-                await message.delete()
-    # Allow commands and DMs
-    await bot.process_commands(message)
-import discord
-import asyncio
-import time
-import datetime
-import json
-import random
-import string
-import re
-import secrets
-
-import requests
-webhook = await channel.create_webhook(name="Sparkles Auto MM")
-
-            # Send as buyer
-
-withdraw_processing = set()
-tos_link = "https://your.tos.link/here"
-buyer_content = (
-"
-    "👋 **Sparkles's Auto Middleman Service**\n"
-    "> Make sure to follow the steps and read the instructions thoroughly.\n"
-    "> Please explicitly state the trade details if the information below is inaccurate.\n"
+        withdraw_processing = set()
+        tos_link = "https://your.tos.link/here"
+        buyer_content = (
+            "👋 **Sparkles's Auto Middleman Service**\n"
+            "> Make sure to follow the steps and read the instructions thoroughly.\n"
+            "> Please explicitly state the trade details if the information below is inaccurate.\n"
+            f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+            f"<@{{interaction.user.id}}>'s side:\n"
+            "```
     f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+            "eeee\n"
+            "```"
+        )
+        seller_content = (
+            f"<@{{user.id}}>'s side:\n"
+            "```
     f"<@{interaction.user.id}>'s side:\n"
+            "eeee\n"
+            "```"
+        )
+        fake_confirmation_tasks = {}
     "````\n"
     "eeee\n"
     "```"

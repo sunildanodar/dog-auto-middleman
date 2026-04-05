@@ -1,63 +1,40 @@
-@bot.event
-async def on_message(message):
-    # Ignore bot messages
-    if message.author.bot:
-        import requests
+import discord
+import asyncio
+import time
+import datetime
+import json
+import random
+import string
+import re
+import secrets
+import requests
+import os
+from discord.ext import commands
+from discord import ui
+from config import TOKEN, LOG_CHANNEL_ID, PROOF_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES, PAYMENT_POLL_INTERVAL_SECONDS, LTC_NETWORK_FEE_USD, FEE_PERCENT
+from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
+from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
-        withdraw_processing = set()
-        tos_link = "https://your.tos.link/here"
-    f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
-    f"<@{interaction.user.id}>'s side:\n"
-        buyer_content = (
-            "👋 **Sparkles's Auto Middleman Service**\n"
-            "> Make sure to follow the steps and read the instructions thoroughly.\n"
-            "> Please explicitly state the trade details if the information below is inaccurate.\n"
-            f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
-            f"<@{{interaction.user.id}}>'s side:\n"
-            "```
-"
-            "eeee\n"
-            "```"
-        )
-        seller_content = (
-            f"<@{{user.id}}>'s side:\n"
-            "```
-)
-            "eeee\n"
-            "```"
-        )
-        fake_confirmation_tasks = {}
-seller_content = (
-            requests.post(
-    f"<@{user.id}>'s side:\n"
-    "````\n"
-    "eeee\n"
-    "```"
-)
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+print("[STARTUP] Dog Auto MM Bot process started (unique diagnostic print)")
+init()
+active_monitors = set()
+slash_synced = False
+withdraw_cooldowns = {}
+withdraw_retry_tasks = {}
+
+PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
+WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
+WITHDRAW_RETRY_BASE_SECONDS = 180
+WITHDRAW_RETRY_MAX_ATTEMPTS = 5
+SPARKLES_TITLE = "Dog Auto Middleman"
+SPARKLES_FOOTER = "Dog Auto Middleman"
+SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
+MIN_DEAL_USD = 0.1
+MAX_DEAL_USD = 50000.0
+sensitive_command_last_used = {}
+withdraw_processing = set()
 fake_confirmation_tasks = {}
-                webhook.url,
-                json={
-                    "content": buyer_content,
-                    "username": interaction.user.display_name,
-                    "avatar_url": str(interaction.user.display_avatar.url)
-                }
-            )
-            # Send as seller
-            requests.post(
-                webhook.url,
-                json={
-                    "content": seller_content,
-                    "username": user.display_name,
-                    "avatar_url": str(user.display_avatar.url)
-                }
-            )
-            await webhook.delete()
-
-            class DeleteTicketView(ui.View):
-                @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger, emoji="🗑️")
-                async def delete(self, interaction2, button):
-                    await channel.delete(reason="Ticket deleted by user.")
-            await channel.send(view=DeleteTicketView())
 payment_view_registered = False
 backup_task_started = False
 security_alert_last_sent = {}
@@ -121,13 +98,28 @@ def running_on_railway():
 
 def enforce_runtime_safety():
     if not REQUIRE_PERSISTENT_DB:
-        # TODO: Add runtime safety logic here
-async def backup_loop():
-            "eeee\n"
-            "```"
+        return
+
+    db_name = (DB_NAME or "").strip().lower()
+    if running_on_railway() and db_name in ("data.db", "./data.db"):
+        raise RuntimeError(
+            "Unsafe storage setup detected: Railway + local SQLite file. "
+            "Set REQUIRE_PERSISTENT_DB=false or move DB_NAME to persistent storage."
         )
-        fake_confirmation_tasks = {}
-        # ...existing code...
+
+    if BACKUP_STARTUP_MAX_AGE_MINUTES > 0:
+        snapshot = database_safety_snapshot()
+        age = snapshot.get("last_backup_age_seconds")
+        max_age_seconds = BACKUP_STARTUP_MAX_AGE_MINUTES * 60
+        if age is None or age > max_age_seconds:
+            raise RuntimeError(
+                "Backup freshness check failed at startup. "
+                f"Last backup age: {age if age is not None else 'none'}s, "
+                f"max allowed: {max_age_seconds}s."
+            )
+
+
+async def backup_loop():
     while True:
         try:
             backup_path = create_db_backup()
@@ -474,9 +466,14 @@ class PaymentDetailsView(ui.View):
             amount_usd = ticket[5]
             amount_crypto = get_locked_amount_crypto(ticket) if crypto == "LTC" else ticket[5]
 
-        text = f"{wallet_address}\n{format_asset_amount(amount_crypto, crypto)}"
+        text = (
+            f"Deal: #{ticket_id}\n"
+            f"Asset: {crypto}\n"
+            f"Amount: {format_asset_amount(amount_crypto, crypto)} {crypto} (${float(amount_usd):.2f})\n"
+            f"Address: {wallet_address}"
+        )
         await interaction.response.send_message(
-            f"```\n{text}\n```",
+            f"Copy and send exactly this:\n```text\n{text}\n```",
             ephemeral=True,
         )
 
@@ -528,58 +525,31 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
                     await channel.set_permissions(role, read_messages=True, send_messages=True)
 
 
-
-            import requests
-
-webhook = await channel.create_webhook(name="Sparkles Auto MM")
-
-tos_link = "https://your.tos.link/here"
-buyer_content = (
-    "👋 **Sparkles's Auto Middleman Service**\n"
-    "> Make sure to follow the steps and read the instructions thoroughly.\n"
-    "> Please explicitly state the trade details if the information below is inaccurate.\n"
-    f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
-    f"<@{interaction.user.id}>'s side:\n```\neeee\n```"
-)
-seller_content = f"<@{user.id}>'s side:\n```\neeee\n```"
-
-# Send as buyer
-requests.post(
-    webhook.url,
-    json={
-        "content": buyer_content,
-        "username": interaction.user.display_name,
-        "avatar_url": str(interaction.user.display_avatar.url)
-    }
-)
-# Send as seller
-requests.post(
-    webhook.url,
-    json={
-        "content": seller_content,
-        "username": user.display_name,
-        "avatar_url": str(user.display_avatar.url)
-    }
-)
-await webhook.delete()
-
-class DeleteTicketView(ui.View):
-    @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger, emoji="🗑️")
-    async def delete(self, interaction2, button):
-        await channel.delete(reason="Ticket deleted by user.")
-await channel.send(view=DeleteTicketView())
-
-            # Continue with the rest of the ticket flow (role selection)
-            embed_desc = (
-                "**Select your role**\n\n"
-                '"Sender" if you are Sending LTC to the bot.\n'
-                '"Receiver" if you are Receiving LTC later from the bot.\n\n'
-                f"Sender: <@{interaction.user.id}>    Receiver: <@{user.id}>"
-            )
             embed = discord.Embed(
-                description=embed_desc,
+                title="Dog Auto Middleman",
+                description=(
+                    "**PREMIUM ESCROW TICKET OPENED**\n"
+                    "Secure middleman workflow for high-trust trades."
+                ),
                 color=0x23272A
             )
+            embed.set_thumbnail(url="https://your.sparkles.logo/here.png")
+            embed.add_field(name="**BUYER**", value=f"<@{interaction.user.id}>", inline=True)
+            embed.add_field(name="**SELLER**", value=f"<@{user.id}>", inline=True)
+            embed.add_field(name="**DEAL ID**", value=f"`{deal_id}`", inline=False)
+            embed.add_field(name="**ASSET**", value=self.crypto, inline=True)
+            embed.add_field(name="**STATUS**", value="Awaiting role selection", inline=True)
+            embed.add_field(
+                name="**SECURITY NOTES**",
+                value=(
+                    "- Never send directly to seller.\n"
+                    "- Only release after delivery is verified.\n"
+                    "- Use bot buttons in this ticket only."
+                ),
+                inline=False,
+            )
+            embed.set_footer(text="Dog Auto Middleman")
+
             view = RoleSelectView(ticket_id, interaction.user.id, user.id, self.crypto)
             msg = await channel.send(embed=embed, view=view)
 
@@ -609,17 +579,17 @@ class RoleSelectView(ui.View):
         if len(self.roles) == 2:
             buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
             seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
-            embed_desc = (
-                "**・Is This Information Correct?**\n\n"
-                "Sender              Receiver\n"
-                f"<@{buyer_id}>         <@{seller_id}>\n\n"
-                "Make sure you have selected the right role! If you didn't then click \"Incorrect\""
-            )
             preview = discord.Embed(
-                description=embed_desc,
-                color=0x23272A,
+                title=SPARKLES_TITLE,
+                description=(
+                    "**ROLE SELECTION COMPLETE**\n"
+                    f"Buyer: <@{buyer_id}>\n"
+                    f"Seller: <@{seller_id}>"
+                ),
+                color=0x111827,
             )
-            await interaction.channel.send(content=f"<@{buyer_id}> <@{seller_id}>", embed=preview)
+            preview.set_footer(text="Click Confirm Roles to continue, or Reset Roles to re-pick.")
+            await interaction.channel.send(embed=preview)
 
     @ui.button(label="Buyer", style=discord.ButtonStyle.primary)
     async def buyer(self, interaction, button):
@@ -793,31 +763,20 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
     try:
         while True:
             ticket = get_ticket(ticket_id)
-                amount_crypto = get_locked_amount_crypto(ticket) if self.crypto == "LTC" else ticket[5]
-                embed_desc = (
-                    "**🟠・Payment Information**\n\n"
-                    "Make sure to send the **EXACT** amount in LTC.\n\n"
-                    f"**USD Amount**: `${ticket[5]:.2f}`    **🪙 LTC Amount**: `{usd_to_ltc(ticket[5]):.5f}`\n\n"
-                    f"**Payment Address**\n```
+            locked_amount = get_locked_amount_crypto(ticket)
+            if crypto == "LTC":
+                required_ltc = locked_amount or usd_to_ltc(amount)
+                if locked_amount is None:
+                    update_ticket(ticket_id, locked_amount_crypto=required_ltc)
+                paid, conf, txid, received_ltc = detect_ltc_payment(address, amount, required_ltc=required_ltc)
+            else:
+                paid, conf, txid, received_ltc = detect_usdt_payment(address, amount, network=usdt_network_from_asset(crypto))
+                required_ltc = amount
+
+            if paid:
+                if conf < CONFIRMATIONS_REQUIRED:
                     update_ticket(ticket_id, status="unconfirmed")
                     await audit(msg.guild, ticket_id, "payment_detected", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
-                    f"Current LTC Price: ${usd_to_ltc(ticket[5])/ticket[5] if ticket[5] else 0:.2f}\n"
-                    "This ticket will be closed within 20 minutes if no transaction was detected."
-                )
-                embed = discord.Embed(
-                    description=embed_desc,
-                    color=0x23272A
-                )
-                payment_msg = await interaction.channel.send(
-                    embed=embed,
-                    view=PaymentDetailsView(
-                        self.ticket_id,
-                        wallet["address"],
-                        amount_crypto,
-                        self.crypto,
-                        ticket[5],
-                    ),
-                )
                     embed = build_unconfirmed_embed(
                         crypto=crypto,
                         amount_usd=amount,
@@ -1294,27 +1253,40 @@ def build_commands_overview_lines():
             trigger = f"!{name}"
 
         aliases = getattr(cmd, "aliases", None) or []
+        alias_text = ""
+        if aliases:
+            alias_text = " (aliases: " + ", ".join(f"!{alias}" for alias in aliases) + ")"
+
+        lines.append(f"{trigger} - {description}{alias_text}")
+
+    try:
         slash_commands = sorted(bot.tree.walk_commands(), key=lambda item: item.qualified_name)
+    except Exception:
+        slash_commands = []
+
+    for slash_cmd in slash_commands:
+        slash_name = getattr(slash_cmd, "qualified_name", slash_cmd.name)
+        if slash_name in seen:
             continue
-        buyer_content = (
-            "👋 **Sparkles's Auto Middleman Service**\n"
-            "> Make sure to follow the steps and read the instructions thoroughly.\n"
-            "> Please explicitly state the trade details if the information below is inaccurate.\n"
-            f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
-            f"<@{{interaction.user.id}}>'s side:\n"
-            "```
+        slash_desc = str(getattr(slash_cmd, "description", "") or "No description.").strip()
+        lines.append(f"/{slash_name} - {slash_desc}")
+
+    return lines
+
+
+def build_commands_overview_pages(lines):
+    pages = []
+    current_lines = []
+    current_len = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if current_len + line_len > 3500 and current_lines:
+            pages.append(current_lines)
+            current_lines = [line]
+            current_len = line_len
+            continue
         current_lines.append(line)
-            "eeee\n"
-            "```"
-        )
-        seller_content = (
-            f"<@{{user.id}}>'s side:\n"
-            "```
         current_len += line_len
-            "eeee\n"
-            "```"
-        )
-        fake_confirmation_tasks = {}
     if current_lines:
         pages.append(current_lines)
     return pages

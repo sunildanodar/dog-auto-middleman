@@ -36,6 +36,9 @@ TICKET_COLUMNS = {
     "locked_amount_crypto",
 }
 
+TICKET_ID_MIN = 1200
+TICKET_ID_MAX = 1600
+
 
 def _ensure_column(cursor, table, column, definition):
     cursor.execute(f"PRAGMA table_info({table})")
@@ -131,12 +134,30 @@ def init():
 def get_next_ticket_id():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("UPDATE counters SET value = value + 1 WHERE name = 'ticket'")
-    c.execute("SELECT value FROM counters WHERE name = 'ticket'")
-    ticket_id = c.fetchone()[0]
-    conn.commit()
-    conn.close()
-    return ticket_id
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        c.execute("INSERT OR IGNORE INTO counters VALUES ('ticket', ?)", (TICKET_ID_MIN - 1,))
+        c.execute("SELECT value FROM counters WHERE name = 'ticket'")
+        row = c.fetchone()
+        last_ticket_id = row[0] if row else (TICKET_ID_MIN - 1)
+        if last_ticket_id < TICKET_ID_MIN or last_ticket_id > TICKET_ID_MAX:
+            last_ticket_id = TICKET_ID_MIN - 1
+
+        range_size = TICKET_ID_MAX - TICKET_ID_MIN + 1
+        candidate = last_ticket_id
+        for _ in range(range_size):
+            candidate += 1
+            if candidate > TICKET_ID_MAX:
+                candidate = TICKET_ID_MIN
+            c.execute("SELECT 1 FROM tickets WHERE ticket_id=?", (candidate,))
+            if not c.fetchone():
+                c.execute("UPDATE counters SET value = ? WHERE name = 'ticket'", (candidate,))
+                conn.commit()
+                return candidate
+
+        raise RuntimeError(f"Ticket ID range {TICKET_ID_MIN}-{TICKET_ID_MAX} is full.")
+    finally:
+        conn.close()
 
 def save_ticket(ticket_id, channel_id, buyer_id, seller_id, crypto, amount, wallet_address, encrypted_private, message_id, description=None, deal_id=None):
     conn = sqlite3.connect(DB_NAME)

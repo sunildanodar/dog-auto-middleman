@@ -1311,40 +1311,27 @@ def build_commands_overview_lines():
             trigger = f"!{name}"
 
         aliases = getattr(cmd, "aliases", None) or []
-        alias_text = ""
-        if aliases:
-            alias_text = " (aliases: " + ", ".join(f"!{alias}" for alias in aliases) + ")"
-
-        lines.append(f"{trigger} - {description}{alias_text}")
-
-    try:
         slash_commands = sorted(bot.tree.walk_commands(), key=lambda item: item.qualified_name)
-    except Exception:
-        slash_commands = []
-
-    for slash_cmd in slash_commands:
-        slash_name = getattr(slash_cmd, "qualified_name", slash_cmd.name)
-        if slash_name in seen:
             continue
-        slash_desc = str(getattr(slash_cmd, "description", "") or "No description.").strip()
-        lines.append(f"/{slash_name} - {slash_desc}")
-
-    return lines
-
-
-def build_commands_overview_pages(lines):
-    pages = []
-    current_lines = []
-    current_len = 0
-    for line in lines:
-        line_len = len(line) + 1
-        if current_len + line_len > 3500 and current_lines:
-            pages.append(current_lines)
-            current_lines = [line]
-            current_len = line_len
-            continue
+        buyer_content = (
+            "👋 **Sparkles's Auto Middleman Service**\n"
+            "> Make sure to follow the steps and read the instructions thoroughly.\n"
+            "> Please explicitly state the trade details if the information below is inaccurate.\n"
+            f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+            f"<@{{interaction.user.id}}>'s side:\n"
+            "```
         current_lines.append(line)
+            "eeee\n"
+            "```"
+        )
+        seller_content = (
+            f"<@{{user.id}}>'s side:\n"
+            "```
         current_len += line_len
+            "eeee\n"
+            "```"
+        )
+        fake_confirmation_tasks = {}
     if current_lines:
         pages.append(current_lines)
     return pages

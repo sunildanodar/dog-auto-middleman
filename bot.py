@@ -42,30 +42,49 @@ security_alert_last_sent = {}
 @bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
 async def panel(ctx):
     # LTC panel
-    embed = discord.Embed(
-        title="<:moneybag:1178392738134630400> • Payment Information",
-        description="Make sure to send the **EXACT** amount in LTC.",
-        color=0x23272A,
-    )
-    embed.add_field(name="USD Amount", value=f"`$ {ticket[5]:.2f}`", inline=True)
-    embed.add_field(name="🕓 LTC Amount", value=f"`{usd_to_ltc(ticket[5]):.5f}`", inline=True)
-    embed.add_field(name="Payment Address", value=f"```
         color=0x10B981
-    )
-    embed.add_field(name="Current LTC Price", value=f"`$ {ticket[13]:.2f}`" if len(ticket) > 13 and ticket[13] else "n/a", inline=False)
-    embed.set_footer(text="This ticket will be closed within 20 minutes if no transaction was detected.")
-    return embed
+        @bot.command(name="panel", aliases=["start", "open", "main"])
+        async def panel(ctx):
+            embed = discord.Embed(
+                title="Dog Auto Middleman",
+                description=(
+                    "**AUTO MIDDLEMAN PANEL**\n"
+                    "\n"
+                    "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
+                    "Clean flow. Fast setup. Secure release.\n"
+                    "\n"
+                    "**AVAILABLE NETWORKS**\n"
+                    "LTC - Litecoin escrow deals\n"
+                    "USDT [BEP-20] - USDT on BNB Smart Chain\n"
+                    "USDT [ETH] - USDT on Ethereum\n"
+                    "\n"
+                    "**HOW IT WORKS**\n"
+                    "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n"
+                    "\n"
+                    "LTC                USDT [BEP-20]           USDT [ETH]\n"
+                    "`Fast Litecoin`    `Best for BNB Smart`    `ERC-20 escrow on`\n"
+                    "`middleman deals` `Chain trades`           `Ethereum`\n"
+                    "\n"
+                    "**Open A Deal**\n"
+                    "Use the buttons below in this order: `LTC, BEP-20, USDT ETH`."
+                ),
+                color=0x23272A,
+            )
+            embed.set_footer(text="Dog Auto Middleman")
+            view = SparklesPanelView()
+            await ctx.send(embed=embed, view=view)
     usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
 
     # USDT ETH panel (use money emoji for distinction)
-    usdt_eth_embed = discord.Embed(
-        title="💵 **· Request USDT [ETH] ·** 💵",
-        description="💵 Network: Ethereum",
-        color=0x6366F1
-    )
-    usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
-    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
+            # USDT ETH panel (use money emoji for distinction)
+            usdt_eth_embed = discord.Embed(
+                title="💵 **· Request USDT [ETH] ·** 💵",
+                description="💵 Network: Ethereum",
+                color=0x6366F1
+            )
+            usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
+            await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)

@@ -68,8 +68,6 @@ async def panel(ctx):
     )
     embed.set_footer(text="Sparkles Auto Middleman")
     await ctx.send(embed=embed, view=SparklesPanelView())
-            usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
-            await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)

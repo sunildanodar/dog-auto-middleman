@@ -1,5 +1,5 @@
 import requests
-from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIRMATIONS_REQUIRED, BSC_RPC_URL, USDT_CONTRACT_ADDRESS, ETH_RPC_URL, USDT_ETH_CONTRACT_ADDRESS, ENCRYPTION_KEY
+from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIRMATIONS_REQUIRED, BSC_RPC_URL, USDT_CONTRACT_ADDRESS, ETH_RPC_URL, USDT_ETH_CONTRACT_ADDRESS, ENCRYPTION_KEY, LTC_FEE_BUFFER_SATOSHIS, EVM_GAS_LIMIT_MULTIPLIER_BPS, EVM_GAS_FEE_BUFFER_WEI
 from web3 import Web3
 from cryptography.fernet import Fernet
 import secrets, hashlib, base58, ecdsa, json
@@ -142,9 +142,12 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
 
 def send_ltc(to_address, amount, priv_key):
     priv = decrypt_key(priv_key)
-    value_satoshis = int(amount * 1e8)
+    requested_satoshis = int(amount * 1e8)
+    # Keep a small buffer for network fees so small tickets do not fail on broadcast.
+    fee_buffer_satoshis = max(int(LTC_FEE_BUFFER_SATOSHIS), 0)
+    value_satoshis = requested_satoshis - fee_buffer_satoshis
     if value_satoshis <= 0:
-        return {"error": "Payout amount must be greater than zero."}
+        return {"error": "Payout amount is too small after reserving network fee buffer."}
 
     from_address = private_hex_to_ltc_address(priv)
 
@@ -343,18 +346,22 @@ def send_usdt(to_address, amount, priv_key, network="BEP20"):
         gas_price = w3.eth.gas_price
         nonce = w3.eth.get_transaction_count(account.address)
         try:
-            gas_limit = transfer_call.estimate_gas({'from': account.address})
+            estimated_gas = transfer_call.estimate_gas({'from': account.address})
         except Exception:
-            gas_limit = 200000
+            estimated_gas = 200000
+
+        multiplier_bps = max(int(EVM_GAS_LIMIT_MULTIPLIER_BPS), 10000)
+        gas_limit = max(int(estimated_gas * multiplier_bps / 10000), 21000)
 
         native_balance = w3.eth.get_balance(account.address)
-        fee_wei = gas_limit * gas_price
+        fee_buffer_wei = max(int(EVM_GAS_FEE_BUFFER_WEI), 0)
+        fee_wei = (gas_limit * gas_price) + fee_buffer_wei
         if native_balance < fee_wei:
             symbol = "ETH" if _network_key(network) == "ETH" else "BNB"
             return {
                 "error": (
                     f"Insufficient {symbol} for gas. "
-                    f"Need about {Web3.from_wei(fee_wei, 'ether')} {symbol}, "
+                    f"Need about {Web3.from_wei(fee_wei, 'ether')} {symbol} (includes safety buffer), "
                     f"wallet has {Web3.from_wei(native_balance, 'ether')} {symbol}."
                 )
             }

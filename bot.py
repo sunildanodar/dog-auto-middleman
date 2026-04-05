@@ -42,19 +42,19 @@ security_alert_last_sent = {}
 @bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
 async def panel(ctx):
     # LTC panel
-    ltc_embed = discord.Embed(
-        title="🪙 **· Request Litecoin ·** 🪙",
-        color=0x23272A
+    embed = discord.Embed(
+        title="<:moneybag:1178392738134630400> • Payment Information",
+        description="Make sure to send the **EXACT** amount in LTC.",
+        color=0x23272A,
     )
-    ltc_embed.add_field(name="\u200b", value="[  Request LTC  ]", inline=False)
-    await ctx.send(embed=ltc_embed, view=RequestLTCView())
-
-    # USDT BEP-20 panel (use coin emoji for clarity)
-    usdt_bep20_embed = discord.Embed(
-        title="🪙 **· Request USDT [BEP-20] ·** 🪙",
-        description="🪙 Network: BSC (BEP-20)",
+    embed.add_field(name="USD Amount", value=f"`$ {ticket[5]:.2f}`", inline=True)
+    embed.add_field(name="🕓 LTC Amount", value=f"`{usd_to_ltc(ticket[5]):.5f}`", inline=True)
+    embed.add_field(name="Payment Address", value=f"```
         color=0x10B981
     )
+    embed.add_field(name="Current LTC Price", value=f"`$ {ticket[13]:.2f}`" if len(ticket) > 13 and ticket[13] else "n/a", inline=False)
+    embed.set_footer(text="This ticket will be closed within 20 minutes if no transaction was detected.")
+    return embed
     usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
 
@@ -182,6 +182,14 @@ def asset_label(asset):
     if value == "USDT_BEP20":
         return "USDT [BEP-20]"
     return value or "UNKNOWN"
+
+
+def format_asset_amount(amount, asset=None):
+    try:
+        numeric_amount = float(amount)
+    except (TypeError, ValueError):
+        return str(amount)
+    return f"{numeric_amount:.8f}".rstrip("0").rstrip(".")
 
 
 async def audit(guild, ticket_id, event, details=""):
@@ -354,62 +362,41 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
 
 def build_amount_embed(amount, description):
     embed = discord.Embed(
-        title=SPARKLES_TITLE,
-        description="**DEAL DETAILS LOCKED**\nBoth parties should review this before payment.",
-        color=0x111827,
+        title="<:moneybag:1178392738134630400> • Set Amount",
+        description=f"**${amount:.2f}**\n{description}",
+        color=0x23272A,
     )
-    embed.add_field(name="USD AMOUNT", value=f"**${amount:.2f}**", inline=True)
-    embed.add_field(name="DESCRIPTION", value=description, inline=False)
-    embed.add_field(name="STATUS", value="Waiting for buyer and seller confirmation", inline=False)
-    embed.set_footer(text=SPARKLES_FOOTER)
+    embed.add_field(name="USD Amount", value=f"`$ {amount:.2f}`", inline=True)
+    embed.add_field(name="🕓 LTC Amount", value=f"`{usd_to_ltc(amount):.5f}`", inline=True)
+    embed.set_footer(text="Enter the exact amount you want to trade.")
     return embed
 
 
 def build_payment_embed(ticket, wallet_address):
-    locked_amount = get_locked_amount_crypto(ticket)
-    amount_ltc = locked_amount if (ticket[4] == "LTC" and locked_amount) else (usd_to_ltc(ticket[5]) if ticket[4] == "LTC" else ticket[5])
-    pay_exact_usd = ltc_deposit_target_usd(ticket[5]) if ticket[4] == "LTC" else ticket[5]
-    seller_receive_usd = seller_payout_usd(ticket[5], ticket[4])
     embed = discord.Embed(
-        title=SPARKLES_TITLE,
-        description=(
-            "**DEPOSIT STAGE - SECURE ESCROW**\n"
-            "Send the exact amount shown below to activate trade protection."
-        ),
-        color=0x0F172A,
+        title="<:moneybag:1178392738134630400> • Payment Info",
+        description="Send the **exact** amount to the address below.",
+        color=0x23272A,
     )
-    embed.add_field(name="DEAL ID", value=f"`{ticket[12] or 'pending'}`", inline=False)
-    embed.add_field(name="DEAL DESCRIPTION", value=ticket[11] or "No description provided", inline=False)
-    embed.add_field(name="PAY EXACTLY (USD)", value=f"**${pay_exact_usd:.2f}**", inline=True)
-    embed.add_field(name=f"PAY EXACTLY ({asset_label(ticket[4])})", value=f"**{amount_ltc:.8f} {asset_label(ticket[4])}**", inline=True)
-    # Show seller receives for all assets if fee applies
-    if seller_receive_usd < pay_exact_usd:
-        embed.add_field(name="SELLER RECEIVES (USD)", value=f"**${seller_receive_usd:.2f}**", inline=True)
-    embed.add_field(name="ESCROW WALLET", value=f"`{wallet_address}`", inline=False)
-    embed.add_field(
-        name="IMPORTANT",
-        value="- Never send directly to seller.\n- Use `Copy Details` button below.\n- Release only after buyer confirms delivery.",
-        inline=False,
-    )
-    embed.set_footer(text="Dog Auto Mm Bot | Auto-monitoring enabled | Confirmations update automatically")
+    embed.add_field(name="USD", value=f"`$ {ticket[5]:.2f}`", inline=True)
+    embed.add_field(name="LTC", value=f"`{usd_to_ltc(ticket[5]):.5f}`", inline=True)
+    embed.add_field(name="Address", value=f"```{wallet_address}```", inline=False)
+    embed.set_footer(text="You have 20 minutes to pay. After payment, wait for 1 confirmation.")
     return embed
 
-
 def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid=None, confirmations=0, received_amount=None):
-    display_received = required_amount if received_amount is None else received_amount
     embed = discord.Embed(
-        title=SPARKLES_TITLE,
-        description=(
-            "**PAYMENT DETECTED (UNCONFIRMED)**\n"
-            f"Waiting for blockchain confirmations: **{confirmations}/{CONFIRMATIONS_REQUIRED}**."
-        ),
-        color=0xB45309,
+        title="⚠️ • Transaction Detected",
+        description="Waiting for 1 confirmation...",
+        color=0xF0B429,
     )
     if txid:
-        embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
-    embed.add_field(name="RECEIVED", value=f"{display_received:.8f} {crypto} (${amount_usd:.2f})", inline=True)
-    embed.add_field(name="REQUIRED", value=f"{required_amount:.8f} {crypto} (${amount_usd:.2f})", inline=True)
-    embed.set_footer(text="Dog Auto Mm Bot | Awaiting confirmations")
+        embed.add_field(name="Transaction", value=f"`{short_txid(txid)}`", inline=False)
+    formatted_received = f"{received_amount:.5f}" if received_amount is not None else "?"
+    formatted_required = f"{required_amount:.5f}" if required_amount is not None else "?"
+    embed.add_field(name="Received", value=f"{formatted_received} {crypto}", inline=True)
+    embed.add_field(name="Required", value=f"{formatted_required} {crypto}", inline=True)
+    embed.set_footer(text="You will be notified when the transaction is confirmed.")
     return embed
 
 
@@ -486,7 +473,7 @@ class PaymentDetailsView(ui.View):
         text = (
             f"Deal: #{ticket_id}\n"
             f"Asset: {crypto}\n"
-            f"Amount: {float(amount_crypto):.8f} {crypto} (${float(amount_usd):.2f})\n"
+            f"Amount: {format_asset_amount(amount_crypto, crypto)} {crypto} (${float(amount_usd):.2f})\n"
             f"Address: {wallet_address}"
         )
         await interaction.response.send_message(
@@ -940,11 +927,11 @@ class ReleaseRefundView(ui.View):
                 return
 
         warning = discord.Embed(
-            title=SPARKLES_TITLE,
-            description="**RELEASE CONFIRMATION**\nClick Confirm to let seller submit payout address and continue withdrawal.",
+            title="⚠️ • Release Confirmation",
+            description="Click **Confirm** to let the seller submit their payout address.",
             color=0xF0B429,
         )
-        warning.set_footer(text=SPARKLES_FOOTER)
+        warning.set_footer(text="This step is required before withdrawal.")
         await audit(interaction.guild, self.ticket_id, "release_started", f"buyer={interaction.user.id}")
         await interaction.followup.send(embed=warning, view=ReleaseWarningView(self.ticket_id, self.crypto), ephemeral=False)
     @ui.button(label="Cancel", style=discord.ButtonStyle.danger, emoji="❌")
@@ -1003,11 +990,11 @@ class ReleaseModal(ui.Modal, title="Enter Seller Address"):
         await audit(interaction.guild, self.ticket_id, "seller_address_submitted", f"seller={interaction.user.id} address={seller_address}")
 
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
-            description=f"**CONFIRM PAYOUT ADDRESS**\nAddress: `{seller_address}`\n\nClick Confirm to withdraw funds or Back to cancel.",
+            title="✅ • Confirm Payout Address",
+            description=f"Address: `{seller_address}`\n\nClick **Confirm** to withdraw funds or **Back** to cancel.",
             color=0x00FF00
         )
-        embed.set_footer(text=SPARKLES_FOOTER)
+        embed.set_footer(text="Double-check the address before confirming.")
         await interaction.response.send_message(embed=embed, view=ReleaseConfirmView(self.ticket_id, self.crypto), ephemeral=False)
 
 
@@ -1028,11 +1015,11 @@ class ReleaseWarningView(ui.View):
             return
 
         embed = discord.Embed(
-            title=SPARKLES_TITLE,
+            title="📥 • Enter Payout Address",
             description=f"Seller <@{ticket[3]}>, enter your payout address to continue.",
             color=0x2b2d31,
         )
-        embed.set_footer(text=SPARKLES_FOOTER)
+        embed.set_footer(text="Only the seller can submit their address.")
         await interaction.response.send_message(embed=embed, view=SellerAddressEntryView(self.ticket_id, self.crypto), ephemeral=False)
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
@@ -1123,13 +1110,13 @@ class ReleaseConfirmView(ui.View):
                 f"txid={fake_txid} address={ticket[9]} unconfirmed=true",
             )
             embed = discord.Embed(
-                title=SPARKLES_TITLE,
-                description="**WITHDRAWAL SUCCESSFUL**\nPayment was sent to seller address.",
+                title="✅ • Withdrawal Successful",
+                description="Payment was sent to the seller address.",
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
             embed.add_field(name="Mode", value="Unconfirmed transfer (/transaction)", inline=False)
-            embed.set_footer(text=SPARKLES_FOOTER)
+            embed.set_footer(text="Funds have been released.")
             await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
             return
@@ -1186,14 +1173,14 @@ class ReleaseConfirmView(ui.View):
             update_ticket(self.ticket_id, status="completed")
             await audit(interaction.guild, self.ticket_id, "withdraw_success", f"txid={txid} address={ticket[9]}")
             embed = discord.Embed(
-                title=SPARKLES_TITLE,
-                description="**WITHDRAWAL SUCCESSFUL**\nFunds were sent to seller address.",
+                title="✅ • Withdrawal Successful",
+                description="Funds were sent to the seller address.",
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{txid}`", inline=False)
             if self.crypto == "LTC":
                 embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
-            embed.set_footer(text=SPARKLES_FOOTER)
+            embed.set_footer(text="Funds have been released.")
             await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
         except Exception as e:
@@ -1761,20 +1748,15 @@ async def generate_proof(ctx, channel_id: int = None):
     completed_at = int(time.time())
 
     proof_embed = discord.Embed(
-        title="Dog Auto Mm Bot",
-        description="**DEAL PROOF**\nThis deal was completed through Dog Auto Mm Bot.",
+        title="🎉 • Deal Proof",
+        description=f"**${ticket[5]:.2f} {ticket[4]}**\nThis deal was completed through Sparkles Middleman Bot.",
         color=0x10B981,
     )
-    proof_embed.add_field(name="Proof ID", value=f"`PRF-{ticket[0]}-{completed_at}`", inline=False)
-    proof_embed.add_field(name="Deal ID", value=f"`{ticket[12] or f'TKT-{ticket[0]}'}`", inline=True)
     proof_embed.add_field(name="Ticket", value=f"`#{ticket[0]}`", inline=True)
     proof_embed.add_field(name="Buyer", value=f"<@{ticket[2]}>", inline=True)
     proof_embed.add_field(name="Seller", value=f"<@{ticket[3]}>", inline=True)
-    proof_embed.add_field(name="Asset", value=f"`{ticket[4]}`", inline=True)
-    proof_embed.add_field(name="Deal Amount", value=f"`${ticket[5]:.2f}`", inline=True)
-    proof_embed.add_field(name="Status", value="`Completed`", inline=True)
     proof_embed.add_field(name="Transaction ID", value=f"`{random_txid}`", inline=False)
-    proof_embed.set_footer(text="Dog Auto Mm Bot | Proof generated")
+    proof_embed.set_footer(text="Proof generated by Sparkles Bot")
 
     await target_channel.send(embed=proof_embed)
     await audit(ctx.guild, ticket[0], "proof_generated", f"by={ctx.author.id} txid={random_txid}")

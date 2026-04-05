@@ -41,53 +41,33 @@ security_alert_last_sent = {}
 
 @bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
 async def panel(ctx):
-    # LTC panel
-        color=0x10B981
-        @bot.command(name="panel", aliases=["start", "open", "main"])
-        async def panel(ctx):
-            embed = discord.Embed(
-                title="SPARKLES AUTO MIDDLEMAN",
-                description=(
-                    "**AUTO MIDDLEMAN PANEL**\n"
-                    "\n"
-                    "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
-                    "Clean flow. Fast setup. Secure release.\n"
-                    "\n"
-                    "**AVAILABLE NETWORKS**\n"
-                    "**LTC** - Litecoin escrow deals\n"
-                    "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
-                    "**USDT [ETH]** - USDT on Ethereum\n"
-                    "\n"
-                    "**HOW IT WORKS**\n"
-                    "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n"
-                    "\n"
-                    "**LTC**              **USDT [BEP-20]**         **USDT [ETH]**\n"
-                    "`Fast Litecoin`      `Best for BNB Smart`     `ERC-20 escrow on`\n"
-                    "`middleman deals`    `Chain trades`            `Ethereum`\n"
-                    "\n"
-                    "**Open A Deal**\n"
-                    "Use the buttons below in this order: `LTC, BEP-20, USDT ETH`."
-                ),
-                color=0x23272A,
-            )
-            embed.set_footer(text="Sparkles Auto Middleman")
-            class PanelButtons(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=None)
-                    self.add_item(discord.ui.Button(label="LTC", style=discord.ButtonStyle.primary, emoji="🪙", custom_id="panel_request_ltc"))
-                    self.add_item(discord.ui.Button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, emoji="💎", custom_id="panel_request_usdt_bep20"))
-                    self.add_item(discord.ui.Button(label="USDT [ETH]", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="panel_request_usdt_eth"))
-            await ctx.send(embed=embed, view=PanelButtons())
-    usdt_bep20_embed.add_field(name="\u200b", value="[  Request USDT [BEP-20]  ]", inline=False)
-    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
-
-    # USDT ETH panel (use money emoji for distinction)
-            # USDT ETH panel (use money emoji for distinction)
-            usdt_eth_embed = discord.Embed(
-                title="💵 **· Request USDT [ETH] ·** 💵",
-                description="💵 Network: Ethereum",
-                color=0x6366F1
-            )
+    embed = discord.Embed(
+        title="SPARKLES AUTO MIDDLEMAN",
+        description=(
+            "**AUTO MIDDLEMAN PANEL**\n"
+            "\n"
+            "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
+            "Clean flow. Fast setup. Secure release.\n"
+            "\n"
+            "**AVAILABLE NETWORKS**\n"
+            "**LTC** - Litecoin escrow deals\n"
+            "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
+            "**USDT [ETH]** - USDT on Ethereum\n"
+            "\n"
+            "**HOW IT WORKS**\n"
+            "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n"
+            "\n"
+            "**LTC**              **USDT [BEP-20]**         **USDT [ETH]**\n"
+            "`Fast Litecoin`      `Best for BNB Smart`     `ERC-20 escrow on`\n"
+            "`middleman deals`    `Chain trades`            `Ethereum`\n"
+            "\n"
+            "**Open A Deal**\n"
+            "Use the buttons below in this order: `LTC, BEP-20, USDT ETH`."
+        ),
+        color=0x23272A,
+    )
+    embed.set_footer(text="Sparkles Auto Middleman")
+    await ctx.send(embed=embed, view=SparklesPanelView())
             usdt_eth_embed.add_field(name="\u200b", value="[  Request USDT [ETH]  ]", inline=False)
             await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 

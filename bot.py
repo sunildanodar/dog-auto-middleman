@@ -1,3 +1,23 @@
+@bot.event
+async def on_message(message):
+    # Ignore bot messages
+    if message.author.bot:
+        return
+
+    # Check if this is a ticket channel
+    ticket = get_ticket_by_channel(message.channel.id)
+    if ticket:
+        # Only allow messages if USD amount is set and confirmed (status 'pending_payment' or later)
+        status = str(ticket[6] or "").lower()
+        if status not in ("pending_payment", "unconfirmed", "paid", "releasing", "completed"):
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
+
+    # Allow commands and DMs
+    await bot.process_commands(message)
 import discord
 import asyncio
 import time
@@ -466,14 +486,9 @@ class PaymentDetailsView(ui.View):
             amount_usd = ticket[5]
             amount_crypto = get_locked_amount_crypto(ticket) if crypto == "LTC" else ticket[5]
 
-        text = (
-            f"Deal: #{ticket_id}\n"
-            f"Asset: {crypto}\n"
-            f"Amount: {format_asset_amount(amount_crypto, crypto)} {crypto} (${float(amount_usd):.2f})\n"
-            f"Address: {wallet_address}"
-        )
+        text = f"{wallet_address}\n{format_asset_amount(amount_crypto, crypto)}"
         await interaction.response.send_message(
-            f"Copy and send exactly this:\n```text\n{text}\n```",
+            f"```\n{text}\n```",
             ephemeral=True,
         )
 
@@ -525,31 +540,58 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
                     await channel.set_permissions(role, read_messages=True, send_messages=True)
 
 
+
+            import requests
+
+webhook = await channel.create_webhook(name="Sparkles Auto MM")
+
+tos_link = "https://your.tos.link/here"
+buyer_content = (
+    "👋 **Sparkles's Auto Middleman Service**\n"
+    "> Make sure to follow the steps and read the instructions thoroughly.\n"
+    "> Please explicitly state the trade details if the information below is inaccurate.\n"
+    f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+    f"<@{interaction.user.id}>'s side:\n```\neeee\n```"
+)
+seller_content = f"<@{user.id}>'s side:\n```\neeee\n```"
+
+# Send as buyer
+requests.post(
+    webhook.url,
+    json={
+        "content": buyer_content,
+        "username": interaction.user.display_name,
+        "avatar_url": str(interaction.user.display_avatar.url)
+    }
+)
+# Send as seller
+requests.post(
+    webhook.url,
+    json={
+        "content": seller_content,
+        "username": user.display_name,
+        "avatar_url": str(user.display_avatar.url)
+    }
+)
+await webhook.delete()
+
+class DeleteTicketView(ui.View):
+    @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def delete(self, interaction2, button):
+        await channel.delete(reason="Ticket deleted by user.")
+await channel.send(view=DeleteTicketView())
+
+            # Continue with the rest of the ticket flow (role selection)
+            embed_desc = (
+                "**Select your role**\n\n"
+                '"Sender" if you are Sending LTC to the bot.\n'
+                '"Receiver" if you are Receiving LTC later from the bot.\n\n'
+                f"Sender: <@{interaction.user.id}>    Receiver: <@{user.id}>"
+            )
             embed = discord.Embed(
-                title="Dog Auto Middleman",
-                description=(
-                    "**PREMIUM ESCROW TICKET OPENED**\n"
-                    "Secure middleman workflow for high-trust trades."
-                ),
+                description=embed_desc,
                 color=0x23272A
             )
-            embed.set_thumbnail(url="https://your.sparkles.logo/here.png")
-            embed.add_field(name="**BUYER**", value=f"<@{interaction.user.id}>", inline=True)
-            embed.add_field(name="**SELLER**", value=f"<@{user.id}>", inline=True)
-            embed.add_field(name="**DEAL ID**", value=f"`{deal_id}`", inline=False)
-            embed.add_field(name="**ASSET**", value=self.crypto, inline=True)
-            embed.add_field(name="**STATUS**", value="Awaiting role selection", inline=True)
-            embed.add_field(
-                name="**SECURITY NOTES**",
-                value=(
-                    "- Never send directly to seller.\n"
-                    "- Only release after delivery is verified.\n"
-                    "- Use bot buttons in this ticket only."
-                ),
-                inline=False,
-            )
-            embed.set_footer(text="Dog Auto Middleman")
-
             view = RoleSelectView(ticket_id, interaction.user.id, user.id, self.crypto)
             msg = await channel.send(embed=embed, view=view)
 
@@ -579,17 +621,17 @@ class RoleSelectView(ui.View):
         if len(self.roles) == 2:
             buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
             seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
-            preview = discord.Embed(
-                title=SPARKLES_TITLE,
-                description=(
-                    "**ROLE SELECTION COMPLETE**\n"
-                    f"Buyer: <@{buyer_id}>\n"
-                    f"Seller: <@{seller_id}>"
-                ),
-                color=0x111827,
+            embed_desc = (
+                "**・Is This Information Correct?**\n\n"
+                "Sender              Receiver\n"
+                f"<@{buyer_id}>         <@{seller_id}>\n\n"
+                "Make sure you have selected the right role! If you didn't then click \"Incorrect\""
             )
-            preview.set_footer(text="Click Confirm Roles to continue, or Reset Roles to re-pick.")
-            await interaction.channel.send(embed=preview)
+            preview = discord.Embed(
+                description=embed_desc,
+                color=0x23272A,
+            )
+            await interaction.channel.send(content=f"<@{buyer_id}> <@{seller_id}>", embed=preview)
 
     @ui.button(label="Buyer", style=discord.ButtonStyle.primary)
     async def buyer(self, interaction, button):
@@ -763,20 +805,31 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
     try:
         while True:
             ticket = get_ticket(ticket_id)
-            locked_amount = get_locked_amount_crypto(ticket)
-            if crypto == "LTC":
-                required_ltc = locked_amount or usd_to_ltc(amount)
-                if locked_amount is None:
-                    update_ticket(ticket_id, locked_amount_crypto=required_ltc)
-                paid, conf, txid, received_ltc = detect_ltc_payment(address, amount, required_ltc=required_ltc)
-            else:
-                paid, conf, txid, received_ltc = detect_usdt_payment(address, amount, network=usdt_network_from_asset(crypto))
-                required_ltc = amount
-
-            if paid:
-                if conf < CONFIRMATIONS_REQUIRED:
+                amount_crypto = get_locked_amount_crypto(ticket) if self.crypto == "LTC" else ticket[5]
+                embed_desc = (
+                    "**🟠・Payment Information**\n\n"
+                    "Make sure to send the **EXACT** amount in LTC.\n\n"
+                    f"**USD Amount**: `${ticket[5]:.2f}`    **🪙 LTC Amount**: `{usd_to_ltc(ticket[5]):.5f}`\n\n"
+                    f"**Payment Address**\n```
                     update_ticket(ticket_id, status="unconfirmed")
                     await audit(msg.guild, ticket_id, "payment_detected", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
+                    f"Current LTC Price: ${usd_to_ltc(ticket[5])/ticket[5] if ticket[5] else 0:.2f}\n"
+                    "This ticket will be closed within 20 minutes if no transaction was detected."
+                )
+                embed = discord.Embed(
+                    description=embed_desc,
+                    color=0x23272A
+                )
+                payment_msg = await interaction.channel.send(
+                    embed=embed,
+                    view=PaymentDetailsView(
+                        self.ticket_id,
+                        wallet["address"],
+                        amount_crypto,
+                        self.crypto,
+                        ticket[5],
+                    ),
+                )
                     embed = build_unconfirmed_embed(
                         crypto=crypto,
                         amount_usd=amount,

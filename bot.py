@@ -358,40 +358,115 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
 
 def build_amount_embed(amount, description):
     embed = discord.Embed(
-        title="<:moneybag:1178392738134630400> • Set Amount",
-        description=f"**${amount:.2f}**\n{description}",
-        color=0x23272A,
+        title=f"USD amount set to ${amount:.2f}",
+        description="Please confirm the USD amount.",
+        color=0x16181D,
     )
-    embed.add_field(name="USD Amount", value=f"`$ {amount:.2f}`", inline=True)
-    embed.add_field(name="🕓 LTC Amount", value=f"`{usd_to_ltc(amount):.5f}`", inline=True)
-    embed.set_footer(text="Enter the exact amount you want to trade.")
+    embed.add_field(name="Deal Details", value=description or "No description provided", inline=False)
     return embed
 
 
 def build_payment_embed(ticket, wallet_address):
+    crypto = ticket[4]
+    amount_usd = float(ticket[5])
+    amount_crypto = get_locked_amount_crypto(ticket) if crypto == "LTC" else amount_usd
     embed = discord.Embed(
-        title="<:moneybag:1178392738134630400> • Payment Info",
-        description="Send the **exact** amount to the address below.",
-        color=0x23272A,
+        title="Payment Information",
+        description=f"Make sure to send the EXACT amount in {crypto}.",
+        color=0x16181D,
     )
-    embed.add_field(name="USD", value=f"`$ {ticket[5]:.2f}`", inline=True)
-    embed.add_field(name="LTC", value=f"`{usd_to_ltc(ticket[5]):.5f}`", inline=True)
-    embed.add_field(name="Address", value=f"```{wallet_address}```", inline=False)
-    embed.set_footer(text="You have 20 minutes to pay. After payment, wait for 1 confirmation.")
+    embed.add_field(name="USD Amount", value=f"`$ {amount_usd:.2f}`", inline=True)
+    embed.add_field(name=f"{crypto} Amount", value=f"`{format_asset_amount(amount_crypto, crypto)}`", inline=True)
+    embed.add_field(name="Payment Address", value=f"```{wallet_address}```", inline=False)
+    embed.set_footer(text="This ticket will be closed within 20 minutes if no transaction was detected.")
     return embed
+
+
+def build_ticket_startup_embed(bot_user):
+    embed = discord.Embed(
+        title="Sparkles's Auto Middleman Service",
+        description=(
+            "> Make sure to follow the steps and read the instructions thoroughly.\n"
+            "> Please explicitly state the trade details if the information below is inaccurate."
+        ),
+        color=0x16181D,
+    )
+    if bot_user is not None:
+        embed.set_author(name="Auto Middleman", icon_url=str(bot_user.display_avatar.url))
+    embed.set_footer(text="Follow the setup below to continue.")
+    return embed
+
+
+def build_role_selection_embed(crypto, roles):
+    sender_id = next((user_id for user_id, role in roles.items() if role == "buyer"), None)
+    receiver_id = next((user_id for user_id, role in roles.items() if role == "seller"), None)
+    asset_text = "LTC" if crypto == "LTC" else asset_label(crypto)
+    embed = discord.Embed(
+        title="Select your role",
+        description=(
+            f"- **Sender** if you are sending {asset_text} to the bot.\n"
+            f"- **Receiver** if you are receiving {asset_text} later from the bot."
+        ),
+        color=0x16181D,
+    )
+    embed.add_field(name="Sender", value=f"<@{sender_id}>" if sender_id else "...", inline=True)
+    embed.add_field(name="Receiver", value=f"<@{receiver_id}>" if receiver_id else "...", inline=True)
+    embed.set_footer(text="Both users must choose opposite roles before continuing.")
+    return embed
+
+
+def build_role_confirmation_embed(sender_id, receiver_id):
+    embed = discord.Embed(
+        title="Is This Information Correct?",
+        description='Make sure you have selected the right role! If you didn\'t then click "Incorrect"',
+        color=0x16181D,
+    )
+    embed.add_field(name="Sender", value=f"<@{sender_id}>", inline=True)
+    embed.add_field(name="Receiver", value=f"<@{receiver_id}>", inline=True)
+    return embed
+
+
+def build_set_amount_prompt_embed():
+    embed = discord.Embed(
+        title="Set the amount in USD value",
+        color=0x16181D,
+    )
+    return embed
+
+
+def resolve_display_media_url(member):
+    asset = member.display_avatar
+    try:
+        if asset.is_animated():
+            return str(asset.replace(format="gif", size=256).url)
+        return str(asset.replace(format="png", size=256).url)
+    except Exception:
+        return str(asset.url)
+
+
+def build_ticket_side_embed(member, label, color):
+    embed = discord.Embed(
+        description=f"**{label}**\n```eeee```",
+        color=color,
+    )
+    media_url = resolve_display_media_url(member)
+    embed.set_author(name=member.display_name, icon_url=media_url)
+    embed.set_thumbnail(url=media_url)
+    return embed
+
 
 def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid=None, confirmations=0, received_amount=None):
     embed = discord.Embed(
-        title="⚠️ • Transaction Detected",
-        description="Waiting for 1 confirmation...",
+        title="Transaction Detected",
+        description=f"The transaction is currently **unconfirmed** and waiting for {CONFIRMATIONS_REQUIRED} confirmation.",
         color=0xF0B429,
     )
     if txid:
-        embed.add_field(name="Transaction", value=f"`{short_txid(txid)}`", inline=False)
-    formatted_received = f"{received_amount:.5f}" if received_amount is not None else "?"
-    formatted_required = f"{required_amount:.5f}" if required_amount is not None else "?"
-    embed.add_field(name="Received", value=f"{formatted_received} {crypto}", inline=True)
-    embed.add_field(name="Required", value=f"{formatted_required} {crypto}", inline=True)
+        embed.add_field(name="Transaction", value=f"`{short_txid(txid)}` ({format_asset_amount(received_amount, crypto)} {crypto})" if received_amount is not None else f"`{short_txid(txid)}`", inline=False)
+    formatted_received = format_asset_amount(received_amount, crypto) if received_amount is not None else "?"
+    formatted_required = format_asset_amount(required_amount, crypto) if required_amount is not None else "?"
+    embed.add_field(name="Amount Received", value=f"`{formatted_received}` {crypto} (${amount_usd:.2f})", inline=True)
+    embed.add_field(name="Required Amount", value=f"`{formatted_required}` {crypto} (${amount_usd:.2f})", inline=True)
     embed.set_footer(text="You will be notified when the transaction is confirmed.")
     return embed
 
@@ -432,21 +507,17 @@ class PaymentDetailsView(ui.View):
             embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else None
             if embed is not None:
                 field_map = {str(field.name).upper(): str(field.value) for field in embed.fields}
-                raw_deal = field_map.get("DEAL ID", "").replace("`", "").strip()
-                if raw_deal:
-                    ticket_id = raw_deal
-
-                raw_wallet = field_map.get("ESCROW WALLET", "").replace("`", "").strip()
+                raw_wallet = field_map.get("PAYMENT ADDRESS", "").replace("`", "").strip()
                 if raw_wallet:
                     wallet_address = raw_wallet
 
-                raw_usd = field_map.get("PAY EXACTLY (USD)", "")
+                raw_usd = field_map.get("USD AMOUNT", "")
                 usd_match = re.search(r"\$\s*([0-9]+(?:\.[0-9]+)?)", raw_usd)
                 if usd_match:
                     amount_usd = float(usd_match.group(1))
 
                 for name, value in field_map.items():
-                    if not name.startswith("PAY EXACTLY (") or name == "PAY EXACTLY (USD)":
+                    if not name.endswith(" AMOUNT") or name == "USD AMOUNT":
                         continue
                     clean_value = value.replace("*", "")
                     crypto_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s+([A-Z0-9]+)", clean_value)
@@ -525,35 +596,27 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
                     await channel.set_permissions(role, read_messages=True, send_messages=True)
 
 
-            embed = discord.Embed(
-                title="Dog Auto Middleman",
-                description=(
-                    "**PREMIUM ESCROW TICKET OPENED**\n"
-                    "Secure middleman workflow for high-trust trades."
-                ),
-                color=0x23272A
-            )
-            embed.set_thumbnail(url="https://your.sparkles.logo/here.png")
-            embed.add_field(name="**BUYER**", value=f"<@{interaction.user.id}>", inline=True)
-            embed.add_field(name="**SELLER**", value=f"<@{user.id}>", inline=True)
-            embed.add_field(name="**DEAL ID**", value=f"`{deal_id}`", inline=False)
-            embed.add_field(name="**ASSET**", value=self.crypto, inline=True)
-            embed.add_field(name="**STATUS**", value="Awaiting role selection", inline=True)
-            embed.add_field(
-                name="**SECURITY NOTES**",
-                value=(
-                    "- Never send directly to seller.\n"
-                    "- Only release after delivery is verified.\n"
-                    "- Use bot buttons in this ticket only."
-                ),
-                inline=False,
-            )
-            embed.set_footer(text="Dog Auto Middleman")
+            startup_embed = build_ticket_startup_embed(bot.user)
+            side_one_embed = build_ticket_side_embed(interaction.user, f"{interaction.user.mention}'s side:", 0x1B1D24)
+            side_two_embed = build_ticket_side_embed(user, f"{user.mention}'s side:", 0x1B1D24)
+            webhook = await channel.create_webhook(name="Auto Middleman")
+            try:
+                await webhook.send(
+                    content=f"{interaction.user.mention} {user.mention}",
+                    username="Auto Middleman",
+                    avatar_url=str(bot.user.display_avatar.url) if bot.user else None,
+                    embeds=[startup_embed, side_one_embed, side_two_embed],
+                    wait=True,
+                )
+            finally:
+                await webhook.delete()
 
-            view = RoleSelectView(ticket_id, interaction.user.id, user.id, self.crypto)
-            msg = await channel.send(embed=embed, view=view)
+            await channel.send(view=DeleteTicketView(ticket_id, interaction.user.id, user.id))
 
-            save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", msg.id, "", deal_id)
+            role_view = RoleSelectView(ticket_id, interaction.user.id, user.id, self.crypto)
+            role_msg = await channel.send(embed=build_role_selection_embed(self.crypto, role_view.roles), view=role_view)
+
+            save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", role_msg.id, "", deal_id)
             await audit(interaction.guild, ticket_id, "ticket_created", f"buyer={interaction.user.id} seller={user.id} crypto={self.crypto} deal_id={deal_id}")
             await interaction.followup.send(f"Ticket created: {channel.mention}", ephemeral=True)
         except Exception as exc:
@@ -564,6 +627,23 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
                     pass
             await interaction.followup.send(f"Could not create ticket. {exc}", ephemeral=True)
 
+class DeleteTicketView(ui.View):
+    def __init__(self, ticket_id, user1, user2):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.user1 = user1
+        self.user2 = user2
+
+    @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger)
+    async def delete(self, interaction, button):
+        if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
+            await interaction.response.send_message("Only ticket participants or the bot admin can delete this ticket.", ephemeral=True)
+            return
+        await audit(interaction.guild, self.ticket_id, "ticket_deleted", f"deleted_by={interaction.user.id}")
+        await interaction.response.send_message("Deleting ticket...", ephemeral=True)
+        await interaction.channel.delete(reason=f"Ticket {self.ticket_id} deleted by {interaction.user.id}")
+
+
 class RoleSelectView(ui.View):
     def __init__(self, ticket_id, user1, user2, crypto):
         super().__init__(timeout=None)
@@ -571,98 +651,117 @@ class RoleSelectView(ui.View):
         self.user1 = user1
         self.user2 = user2
         self.crypto = crypto
-        self.roles = {}
-        self.role_confirms = set()
+        self.roles = {user1: "buyer", user2: "seller"}
         self.roles_finalized = False
 
-    async def check_confirm(self, interaction):
-        if len(self.roles) == 2:
-            buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
-            seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
-            preview = discord.Embed(
-                title=SPARKLES_TITLE,
-                description=(
-                    "**ROLE SELECTION COMPLETE**\n"
-                    f"Buyer: <@{buyer_id}>\n"
-                    f"Seller: <@{seller_id}>"
-                ),
-                color=0x111827,
-            )
-            preview.set_footer(text="Click Confirm Roles to continue, or Reset Roles to re-pick.")
-            await interaction.channel.send(embed=preview)
+    async def sync_role_message(self, interaction):
+        await interaction.message.edit(embed=build_role_selection_embed(self.crypto, self.roles), view=self)
 
-    @ui.button(label="Buyer", style=discord.ButtonStyle.primary)
-    async def buyer(self, interaction, button):
-        if interaction.user.id not in [self.user1, self.user2]:
-            return
-        if interaction.user.id in self.roles:
-            await interaction.response.send_message("You have already selected a role.", ephemeral=True)
-            return
-        self.roles[interaction.user.id] = "buyer"
-        await interaction.response.send_message(f":white_check_mark: <@{interaction.user.id}> selected **Buyer**.", ephemeral=False)
-        await self.check_confirm(interaction)
-
-    @ui.button(label="Seller", style=discord.ButtonStyle.secondary)
-    async def seller(self, interaction, button):
-        if interaction.user.id not in [self.user1, self.user2]:
-            return
-        if interaction.user.id in self.roles:
-            await interaction.response.send_message("You already selected a role.", ephemeral=True)
-            return
-        self.roles[interaction.user.id] = "seller"
-        await interaction.response.send_message(f":white_check_mark: <@{interaction.user.id}> selected **Seller**.", ephemeral=False)
-        await self.check_confirm(interaction)
-
-    @ui.button(label="Confirm Roles", style=discord.ButtonStyle.success)
-    async def confirm_roles(self, interaction, button):
-        if self.roles_finalized:
-            await interaction.response.send_message("Roles already confirmed for this ticket.", ephemeral=True)
-            return
-        if interaction.user.id not in [self.user1, self.user2]:
-            await interaction.response.send_message("Only ticket participants can confirm roles.", ephemeral=True)
-            return
-        if len(self.roles) != 2:
-            await interaction.response.send_message("Both users must select roles first.", ephemeral=False)
-            return
-        if interaction.user.id not in self.roles:
-            await interaction.response.send_message("You must pick Buyer or Seller before confirming.", ephemeral=True)
-            return
-
-        self.role_confirms.add(interaction.user.id)
-        if len(self.role_confirms) < 2:
-            await interaction.response.send_message(
-                f"✅ <@{interaction.user.id}> confirmed roles ({len(self.role_confirms)}/2).",
-                ephemeral=False,
-            )
-            return
-
+    async def finalize_roles(self, interaction):
         self.roles_finalized = True
-        buyer_id = [k for k, v in self.roles.items() if v == "buyer"][0]
-        seller_id = [k for k, v in self.roles.items() if v == "seller"][0]
-        update_ticket(self.ticket_id, buyer_id=buyer_id, seller_id=seller_id)
-        await audit(interaction.guild, self.ticket_id, "roles_confirmed", f"buyer={buyer_id} seller={seller_id}")
-        await interaction.channel.send(f":white_check_mark: Roles confirmed for ticket {self.ticket_id}! Buyer: <@{buyer_id}> | Seller: <@{seller_id}>")
-        embed = discord.Embed(
-            title=SPARKLES_TITLE,
-            description="**ROLES CONFIRMED**\nBuyer can now enter the deal amount.",
-            color=0x0F172A
-        )
-        await interaction.channel.send(embed=embed, view=AmountView(self.ticket_id, buyer_id, self.crypto))
-        await interaction.response.defer()
+        for child in self.children:
+            child.disabled = True
 
-    @ui.button(label="Reset Roles", style=discord.ButtonStyle.danger)
+        sender_id = next(user_id for user_id, role in self.roles.items() if role == "buyer")
+        receiver_id = next(user_id for user_id, role in self.roles.items() if role == "seller")
+        update_ticket(self.ticket_id, buyer_id=sender_id, seller_id=receiver_id)
+        await interaction.message.edit(embed=build_role_selection_embed(self.crypto, self.roles), view=self)
+
+        await interaction.channel.send(
+            f"<@{sender_id}> <@{receiver_id}>",
+            embed=build_role_confirmation_embed(sender_id, receiver_id),
+            view=InfoConfirmView(self.ticket_id, sender_id, receiver_id, self.crypto),
+        )
+
+    async def assign_role(self, interaction, role_name, label):
+        if self.roles_finalized:
+            await interaction.response.send_message("Roles are already locked in for this ticket.", ephemeral=True)
+            return
+        if interaction.user.id not in [self.user1, self.user2]:
+            await interaction.response.send_message("Only ticket participants can choose a role.", ephemeral=True)
+            return
+
+        previous_role = self.roles.get(interaction.user.id)
+        if previous_role == role_name:
+            await interaction.response.defer()
+            await self.sync_role_message(interaction)
+            await interaction.followup.send(f"Selected **{label}** for <@{interaction.user.id}>.", ephemeral=False)
+            if len(self.roles) == 2 and len(set(self.roles.values())) == 2:
+                await self.finalize_roles(interaction)
+            return
+
+        self.roles[interaction.user.id] = role_name
+        other_user_id = self.user2 if interaction.user.id == self.user1 else self.user1
+        self.roles[other_user_id] = "seller" if role_name == "buyer" else "buyer"
+        await interaction.response.defer()
+        await self.sync_role_message(interaction)
+        await interaction.followup.send(f"Selected **{label}** for <@{interaction.user.id}>.", ephemeral=False)
+
+        if len(self.roles) == 2 and len(set(self.roles.values())) == 2:
+            await self.finalize_roles(interaction)
+
+    @ui.button(label="Sender", style=discord.ButtonStyle.primary)
+    async def buyer(self, interaction, button):
+        await self.assign_role(interaction, "buyer", "Sender")
+
+    @ui.button(label="Receiver", style=discord.ButtonStyle.secondary)
+    async def seller(self, interaction, button):
+        await self.assign_role(interaction, "seller", "Receiver")
+
+    @ui.button(label="Reset", style=discord.ButtonStyle.danger)
     async def reset_roles(self, interaction, button):
         if interaction.user.id not in [self.user1, self.user2]:
             await interaction.response.send_message("Only ticket participants can reset roles.", ephemeral=True)
             return
 
-        self.roles = {}
-        self.role_confirms = set()
+        self.roles = {self.user1: "buyer", self.user2: "seller"}
         self.roles_finalized = False
-        await interaction.response.send_message(
-            f"Role selection was reset by <@{interaction.user.id}>. Please choose roles again.",
-            ephemeral=False,
-        )
+        for child in self.children:
+            child.disabled = False
+        await interaction.response.defer()
+        await self.sync_role_message(interaction)
+        await interaction.followup.send(f"Role selection was reset by <@{interaction.user.id}>. Please choose roles again.", ephemeral=False)
+
+
+class InfoConfirmView(ui.View):
+    def __init__(self, ticket_id, sender_id, receiver_id, crypto):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.sender_id = sender_id
+        self.receiver_id = receiver_id
+        self.crypto = crypto
+        self.confirms = set()
+
+    @ui.button(label="Correct", style=discord.ButtonStyle.success)
+    async def correct(self, interaction, button):
+        if interaction.user.id not in [self.sender_id, self.receiver_id]:
+            await interaction.response.send_message("Only ticket participants can confirm this.", ephemeral=True)
+            return
+        if interaction.user.id in self.confirms:
+            await interaction.response.send_message("You already confirmed this.", ephemeral=True)
+            return
+
+        self.confirms.add(interaction.user.id)
+        await interaction.response.send_message(f"✅ <@{interaction.user.id}> clicked Correct.", ephemeral=False)
+
+        if len(self.confirms) == 2:
+            for child in self.children:
+                child.disabled = True
+            await interaction.message.edit(view=self)
+            await audit(interaction.guild, self.ticket_id, "roles_confirmed", f"buyer={self.sender_id} seller={self.receiver_id}")
+            await interaction.channel.send(
+                content=f"<@{self.sender_id}>",
+                embed=build_set_amount_prompt_embed(),
+                view=AmountView(self.ticket_id, self.sender_id, self.crypto),
+            )
+
+    @ui.button(label="Incorrect", style=discord.ButtonStyle.danger)
+    async def incorrect(self, interaction, button):
+        if interaction.user.id not in [self.sender_id, self.receiver_id]:
+            await interaction.response.send_message("Only ticket participants can reset this.", ephemeral=True)
+            return
+        await interaction.response.send_message("Please use the role selection above to choose the correct roles again.", ephemeral=False)
+
 
 class AmountModal(ui.Modal, title="Enter Deal Details"):
     amount = ui.TextInput(label="Amount in USD", placeholder="100.00")
@@ -694,7 +793,12 @@ class AmountModal(ui.Modal, title="Enter Deal Details"):
         await audit(interaction.guild, self.ticket_id, "amount_set", f"usd={amt:.2f} description={desc[:120]}")
         embed = build_amount_embed(amt, desc)
         view = ConfirmAmountView(self.ticket_id, self.buyer_id, self.crypto)
-        await interaction.response.send_message(embed=embed, view=view)
+        ticket = get_ticket(self.ticket_id)
+        await interaction.response.send_message(
+            content=f"<@{ticket[2]}> <@{ticket[3]}>",
+            embed=embed,
+            view=view,
+        )
 
 class AmountView(ui.View):
     def __init__(self, ticket_id, buyer_id, crypto):
@@ -703,11 +807,12 @@ class AmountView(ui.View):
         self.buyer_id = buyer_id
         self.crypto = crypto
 
-    @ui.button(label="Enter Amount", style=discord.ButtonStyle.primary, emoji="💵")
+    @ui.button(label="Set USD Amount", style=discord.ButtonStyle.primary)
     async def enter_amount(self, interaction, button):
         if interaction.user.id != self.buyer_id:
             return
         await interaction.response.send_modal(AmountModal(self.ticket_id, self.buyer_id, self.crypto))
+
 
 class ConfirmAmountView(ui.View):
     def __init__(self, ticket_id, buyer_id, crypto):
@@ -717,45 +822,65 @@ class ConfirmAmountView(ui.View):
         self.crypto = crypto
         self.confirms = set()
 
-    @ui.button(label="Confirm", style=discord.ButtonStyle.success, emoji="✅")
+    @ui.button(label="Correct", style=discord.ButtonStyle.success)
     async def confirm(self, interaction, button):
         ticket = get_ticket(self.ticket_id)
-        if interaction.user.id not in [ticket[2], ticket[3]]:  # buyer, seller
+        if interaction.user.id not in [ticket[2], ticket[3]]:
             return
+        if interaction.user.id in self.confirms:
+            await interaction.response.send_message("You already confirmed the USD amount.", ephemeral=True)
+            return
+
         self.confirms.add(interaction.user.id)
-        await interaction.response.send_message(f"✅ <@{interaction.user.id}> confirmed the USD amount ({len(self.confirms)}/2).", ephemeral=False)
-        if len(self.confirms) == 2:
-            ticket = get_ticket(self.ticket_id)
-            if not ticket:
-                return
-            if self.crypto == "LTC":
-                wallet = generate_ltc_wallet()
-            else:
-                wallet = generate_bep20_wallet()
-            locked_amount = usd_to_ltc(ltc_deposit_target_usd(ticket[5])) if self.crypto == "LTC" else ticket[5]
-            update_ticket(
+        await interaction.response.send_message(f"✅ <@{interaction.user.id}> confirmed the USD amount.", ephemeral=False)
+        if len(self.confirms) != 2:
+            return
+
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+
+        ticket = get_ticket(self.ticket_id)
+        if not ticket:
+            return
+        if self.crypto == "LTC":
+            wallet = generate_ltc_wallet()
+        else:
+            wallet = generate_bep20_wallet()
+        locked_amount = usd_to_ltc(ltc_deposit_target_usd(ticket[5])) if self.crypto == "LTC" else ticket[5]
+        update_ticket(
+            self.ticket_id,
+            wallet_address=wallet["address"],
+            encrypted_private=wallet["private"],
+            status="pending_payment",
+            locked_amount_crypto=locked_amount,
+        )
+        ticket = get_ticket(self.ticket_id)
+        embed = build_payment_embed(ticket, wallet["address"])
+        amount_crypto = get_locked_amount_crypto(ticket) if self.crypto == "LTC" else ticket[5]
+        payment_msg = await interaction.channel.send(
+            f"<@{ticket[2]}> Send the {self.crypto} to the following address.",
+            embed=embed,
+            view=PaymentDetailsView(
                 self.ticket_id,
-                wallet_address=wallet["address"],
-                encrypted_private=wallet["private"],
-                status="pending_payment",
-                locked_amount_crypto=locked_amount,
-            )
-            ticket = get_ticket(self.ticket_id)
-            embed = build_payment_embed(ticket, wallet["address"])
-            amount_crypto = get_locked_amount_crypto(ticket) if self.crypto == "LTC" else ticket[5]
-            payment_msg = await interaction.channel.send(
-                embed=embed,
-                view=PaymentDetailsView(
-                    self.ticket_id,
-                    wallet["address"],
-                    amount_crypto,
-                    self.crypto,
-                    ticket[5],
-                ),
-            )
-            update_ticket(self.ticket_id, message_id=payment_msg.id)
-            await audit(interaction.guild, self.ticket_id, "payment_requested", f"wallet={wallet['address']} usd={ticket[5]:.2f}")
-            bot.loop.create_task(monitor_payment(self.ticket_id, wallet["address"], ticket[5], self.crypto, payment_msg))
+                wallet["address"],
+                amount_crypto,
+                self.crypto,
+                ticket[5],
+            ),
+        )
+        update_ticket(self.ticket_id, message_id=payment_msg.id)
+        await audit(interaction.guild, self.ticket_id, "payment_requested", f"wallet={wallet['address']} usd={ticket[5]:.2f}")
+        bot.loop.create_task(monitor_payment(self.ticket_id, wallet["address"], ticket[5], self.crypto, payment_msg))
+
+    @ui.button(label="Incorrect", style=discord.ButtonStyle.danger)
+    async def incorrect(self, interaction, button):
+        ticket = get_ticket(self.ticket_id)
+        if not ticket or interaction.user.id not in [ticket[2], ticket[3]]:
+            return
+        await interaction.response.send_message("Amount confirmation was marked incorrect. Please set the amount again.", ephemeral=False)
+        await interaction.channel.send(embed=build_set_amount_prompt_embed(), view=AmountView(self.ticket_id, self.buyer_id, self.crypto))
+
 
 async def monitor_payment(ticket_id, address, amount, crypto, msg):
     active_monitors.add(ticket_id)
@@ -793,23 +918,21 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                     update_ticket(ticket_id, status="paid")
                     await audit(msg.guild, ticket_id, "payment_confirmed", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
                     embed = discord.Embed(
-                        title=SPARKLES_TITLE,
-                        description="**PAYMENT CONFIRMED**\nDeposit verified successfully. Release controls are now ready.",
+                        title="Transaction Confirmed!",
+                        description="",
                         color=0x10B981,
                     )
-                    embed.add_field(name="TRANSACTION", value=f"`{short_txid(txid)}`", inline=False)
-                    embed.add_field(name="TOTAL RECEIVED", value=f"{received_ltc:.8f} {crypto} (${amount:.2f})", inline=False)
-                    embed.set_footer(text="Dog Escrow | Confirm delivery before releasing")
+                    embed.add_field(name="Transactions", value=f"`{short_txid(txid)}` ({format_asset_amount(received_ltc, crypto)} {crypto})", inline=False)
+                    embed.add_field(name="Total Amount Received", value=f"`{format_asset_amount(received_ltc, crypto)}` {crypto} (${amount:.2f})", inline=False)
                     await msg.channel.send(embed=embed)
 
                     ticket = get_ticket(ticket_id)
                     if ticket:
                         instructions = discord.Embed(
-                            title=SPARKLES_TITLE,
+                            title="You may proceed with your trade.",
                             description=(
-                                "**DEPOSIT CONFIRMED - TRADE LIVE**\n\n"
-                                f"1. <@{ticket[3]}> Deliver the product/payment agreed in this deal.\n\n"
-                                f"2. <@{ticket[2]}> After receiving everything, click release so seller can withdraw {crypto}."
+                                f"1. <@{ticket[3]}> Give your trader the items or payment you agreed on.\n\n"
+                                f"2. <@{ticket[2]}> Once you have received your items, click \"Release\" so your trader can claim the {crypto}."
                             ),
                             color=0x10B981,
                         )
@@ -868,7 +991,7 @@ class ReleaseRefundView(ui.View):
         self.ticket_id = ticket_id
         self.crypto = crypto
 
-    @ui.button(label="Release", style=discord.ButtonStyle.success, emoji="🚀")
+    @ui.button(label="Release", style=discord.ButtonStyle.success)
     async def release(self, interaction, button):
         try:
             await interaction.response.defer(ephemeral=True)
@@ -925,14 +1048,13 @@ class ReleaseRefundView(ui.View):
                 return
 
         warning = discord.Embed(
-            title="⚠️ • Release Confirmation",
-            description="Click **Confirm** to let the seller submit their payout address.",
+            title=f"Are you sure you want to release the {self.crypto}?",
+            description=f'Click "Confirm" will give your trader permission to withdraw the {self.crypto}.',
             color=0xF0B429,
         )
-        warning.set_footer(text="This step is required before withdrawal.")
         await audit(interaction.guild, self.ticket_id, "release_started", f"buyer={interaction.user.id}")
         await interaction.followup.send(embed=warning, view=ReleaseWarningView(self.ticket_id, self.crypto), ephemeral=False)
-    @ui.button(label="Cancel", style=discord.ButtonStyle.danger, emoji="❌")
+    @ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button):
         ticket = get_ticket(self.ticket_id)
         if not ticket:
@@ -988,11 +1110,10 @@ class ReleaseModal(ui.Modal, title="Enter Seller Address"):
         await audit(interaction.guild, self.ticket_id, "seller_address_submitted", f"seller={interaction.user.id} address={seller_address}")
 
         embed = discord.Embed(
-            title="✅ • Confirm Payout Address",
-            description=f"Address: `{seller_address}`\n\nClick **Confirm** to withdraw funds or **Back** to cancel.",
-            color=0x00FF00
+            title="Confirm Address",
+            description=f"**Address:** `{seller_address}`\n\nClick \"Confirm\" to send {self.crypto} or \"Back\" to cancel.",
+            color=0xF0B429
         )
-        embed.set_footer(text="Double-check the address before confirming.")
         await interaction.response.send_message(embed=embed, view=ReleaseConfirmView(self.ticket_id, self.crypto), ephemeral=False)
 
 
@@ -1013,11 +1134,10 @@ class ReleaseWarningView(ui.View):
             return
 
         embed = discord.Embed(
-            title="📥 • Enter Payout Address",
-            description=f"Seller <@{ticket[3]}>, enter your payout address to continue.",
-            color=0x2b2d31,
+            title=f"What's Your {self.crypto} Address?",
+            description=f"Make sure to paste your correct {self.crypto} address.",
+            color=0x16181D,
         )
-        embed.set_footer(text="Only the seller can submit their address.")
         await interaction.response.send_message(embed=embed, view=SellerAddressEntryView(self.ticket_id, self.crypto), ephemeral=False)
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
@@ -1033,7 +1153,7 @@ class SellerAddressEntryView(ui.View):
         if self.children:
             self.children[0].label = "Enter Your LTC Address" if crypto == "LTC" else "Enter Your USDT Address"
 
-    @ui.button(label="Enter Your LTC Address", style=discord.ButtonStyle.primary, emoji="📥")
+    @ui.button(label="Enter Your LTC Address", style=discord.ButtonStyle.primary)
     async def enter_address(self, interaction, button):
         # Open modal immediately to avoid interaction timeout (Unknown interaction).
         # Seller/ticket validation is enforced in ReleaseModal.on_submit.
@@ -1108,13 +1228,12 @@ class ReleaseConfirmView(ui.View):
                 f"txid={fake_txid} address={ticket[9]} unconfirmed=true",
             )
             embed = discord.Embed(
-                title="✅ • Withdrawal Successful",
-                description="Payment was sent to the seller address.",
+                title="Withdrawal Successful",
+                description="Use /setprivacy to display your user in `#-completed`",
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
-            embed.add_field(name="Mode", value="Unconfirmed transfer (/transaction)", inline=False)
-            embed.set_footer(text="Funds have been released.")
+            embed.add_field(name="Amount Sent", value=f"`{format_asset_amount(usd_to_ltc(ltc_seller_payout_usd(ticket[5])) if self.crypto == 'LTC' else seller_payout_usd(ticket[5], self.crypto), self.crypto)}` {self.crypto} (${ticket[5]:.2f})", inline=False)
             await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
             return
@@ -1171,14 +1290,13 @@ class ReleaseConfirmView(ui.View):
             update_ticket(self.ticket_id, status="completed")
             await audit(interaction.guild, self.ticket_id, "withdraw_success", f"txid={txid} address={ticket[9]}")
             embed = discord.Embed(
-                title="✅ • Withdrawal Successful",
-                description="Funds were sent to the seller address.",
+                title="Withdrawal Successful",
+                description="Use /setprivacy to display your user in `#-completed`",
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{txid}`", inline=False)
-            if self.crypto == "LTC":
-                embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
-            embed.set_footer(text="Funds have been released.")
+            amount_sent = usd_to_ltc(ltc_seller_payout_usd(ticket[5])) if self.crypto == "LTC" else seller_payout_usd(ticket[5], self.crypto)
+            embed.add_field(name="Amount Sent", value=f"`{format_asset_amount(amount_sent, self.crypto)}` {self.crypto} (${ticket[5]:.2f})", inline=False)
             await interaction.followup.send(embed=embed)
             withdraw_processing.discard(self.ticket_id)
         except Exception as e:

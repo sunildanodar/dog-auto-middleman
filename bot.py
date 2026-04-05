@@ -12,10 +12,6 @@ async def on_message(message):
         if status not in ("pending_payment", "unconfirmed", "paid", "releasing", "completed"):
             try:
                 await message.delete()
-            except Exception:
-                pass
-            return
-
     # Allow commands and DMs
     await bot.process_commands(message)
 import discord
@@ -27,34 +23,47 @@ import random
 import string
 import re
 import secrets
-import requests
-import os
-from discord.ext import commands
-from discord import ui
-from config import TOKEN, LOG_CHANNEL_ID, PROOF_CHANNEL_ID, TICKET_CATEGORY_ID, ADMIN_ID, CONFIRMATIONS_REQUIRED, BLOCKCYPHER_TOKEN, CODE_VERSION, DB_BACKUP_INTERVAL_MINUTES, REQUIRE_PERSISTENT_DB, DB_NAME, BACKUP_ALERT_MAX_AGE_MINUTES, BACKUP_STARTUP_MAX_AGE_MINUTES, PAYMENT_POLL_INTERVAL_SECONDS, LTC_NETWORK_FEE_USD, FEE_PERCENT
-from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_payment, detect_usdt_payment, send_ltc, send_usdt, sweep_ltc_to_master, sweep_usdt_to_master, usd_to_ltc, decrypt_key, private_hex_to_ltc_address
-from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
-print("[STARTUP] Dog Auto MM Bot process started (unique diagnostic print)")
-init()
-active_monitors = set()
-slash_synced = False
-withdraw_cooldowns = {}
-withdraw_retry_tasks = {}
+            import requests
+            webhook = await channel.create_webhook(name="Sparkles Auto MM")
 
-PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
-WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
-WITHDRAW_RETRY_BASE_SECONDS = 180
-WITHDRAW_RETRY_MAX_ATTEMPTS = 5
-SPARKLES_TITLE = "Dog Auto Middleman"
-SPARKLES_FOOTER = "Dog Auto Middleman"
-SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
-MIN_DEAL_USD = 0.1
-MAX_DEAL_USD = 50000.0
-sensitive_command_last_used = {}
+            tos_link = "https://your.tos.link/here"
+            buyer_content = (
+                "👋 **Sparkles's Auto Middleman Service**\n"
+                "> Make sure to follow the steps and read the instructions thoroughly.\n"
+                "> Please explicitly state the trade details if the information below is inaccurate.\n"
+                f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
+                f"<@{interaction.user.id}>'s side:\n```
 withdraw_processing = set()
+            )
+            seller_content = f"<@{user.id}>'s side:\n```
 fake_confirmation_tasks = {}
+
+            # Send as buyer
+            requests.post(
+                webhook.url,
+                json={
+                    "content": buyer_content,
+                    "username": interaction.user.display_name,
+                    "avatar_url": str(interaction.user.display_avatar.url)
+                }
+            )
+            # Send as seller
+            requests.post(
+                webhook.url,
+                json={
+                    "content": seller_content,
+                    "username": user.display_name,
+                    "avatar_url": str(user.display_avatar.url)
+                }
+            )
+            await webhook.delete()
+
+            class DeleteTicketView(ui.View):
+                @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger, emoji="🗑️")
+                async def delete(self, interaction2, button):
+                    await channel.delete(reason="Ticket deleted by user.")
+            await channel.send(view=DeleteTicketView())
 payment_view_registered = False
 backup_task_started = False
 security_alert_last_sent = {}

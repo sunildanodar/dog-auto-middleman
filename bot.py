@@ -42,31 +42,25 @@ security_alert_last_sent = {}
 @bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
 async def panel(ctx):
     embed = discord.Embed(
-        title="SPARKLES AUTO MIDDLEMAN",
+        title="Dog Auto Middleman",
         description=(
-            "**AUTO MIDDLEMAN PANEL**\n"
-            "\n"
-            "**PREMIUM ESCROW FOR CRYPTO DEALS**\n"
-            "Clean flow. Fast setup. Secure release.\n"
-            "\n"
+            "**PREMIUM ESCROW TICKET OPENED**\n"
+            "Secure middleman workflow for high-trust trades.\n\n"
             "**AVAILABLE NETWORKS**\n"
-            "**LTC** - Litecoin escrow deals\n"
-            "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
-            "**USDT [ETH]** - USDT on Ethereum\n"
-            "\n"
+            "<:ltc:EMOJI_ID> **LTC** - Litecoin escrow deals\n"
+            "<:usdt:EMOJI_ID> **USDT [BEP-20]** - USDT on BNB Smart Chain\n"
+            "<:eth:EMOJI_ID> **USDT [ETH]** - USDT on Ethereum\n\n"
             "**HOW IT WORKS**\n"
-            "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n"
-            "\n"
-            "**LTC**              **USDT [BEP-20]**         **USDT [ETH]**\n"
+            "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n\n"
+            "<:ltc:EMOJI_ID> **LTC**      <:usdt:EMOJI_ID> **USDT [BEP-20]**     <:eth:EMOJI_ID> **USDT [ETH]**\n"
             "`Fast Litecoin`      `Best for BNB Smart`     `ERC-20 escrow on`\n"
-            "`middleman deals`    `Chain trades`            `Ethereum`\n"
-            "\n"
-            "**Open A Deal**\n"
-            "Use the buttons below in this order: `LTC, BEP-20, USDT ETH`."
+            "`middleman deals`    `Chain trades`            `Ethereum`\n\n"
+            "**Open A Deal**\nUse the buttons below in this order: `LTC, BEP-20, USDT ETH`."
         ),
         color=0x23272A,
     )
-    embed.set_footer(text="Sparkles Auto Middleman")
+    embed.set_thumbnail(url="https://your.sparkles.logo/here.png")
+    embed.set_footer(text="Dog Auto Middleman")
     await ctx.send(embed=embed, view=SparklesPanelView())
 
 def log(guild, msg):
@@ -530,21 +524,23 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
                 if "admin" in role.name.lower():
                     await channel.set_permissions(role, read_messages=True, send_messages=True)
 
+
             embed = discord.Embed(
-                title=SPARKLES_TITLE,
+                title="Dog Auto Middleman",
                 description=(
                     "**PREMIUM ESCROW TICKET OPENED**\n"
                     "Secure middleman workflow for high-trust trades."
                 ),
-                color=0x111827
+                color=0x23272A
             )
-            embed.add_field(name="BUYER", value=f"<@{interaction.user.id}>", inline=True)
-            embed.add_field(name="SELLER", value=f"<@{user.id}>", inline=True)
-            embed.add_field(name="DEAL ID", value=f"`{deal_id}`", inline=False)
-            embed.add_field(name="ASSET", value=self.crypto, inline=True)
-            embed.add_field(name="STATUS", value="Awaiting role selection", inline=True)
+            embed.set_thumbnail(url="https://your.sparkles.logo/here.png")
+            embed.add_field(name="**BUYER**", value=f"<@{interaction.user.id}>", inline=True)
+            embed.add_field(name="**SELLER**", value=f"<@{user.id}>", inline=True)
+            embed.add_field(name="**DEAL ID**", value=f"`{deal_id}`", inline=False)
+            embed.add_field(name="**ASSET**", value=self.crypto, inline=True)
+            embed.add_field(name="**STATUS**", value="Awaiting role selection", inline=True)
             embed.add_field(
-                name="SECURITY NOTES",
+                name="**SECURITY NOTES**",
                 value=(
                     "- Never send directly to seller.\n"
                     "- Only release after delivery is verified.\n"

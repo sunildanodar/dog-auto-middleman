@@ -32,20 +32,20 @@ webhook = await channel.create_webhook(name="Sparkles Auto MM")
 withdraw_processing = set()
 tos_link = "https://your.tos.link/here"
 buyer_content = (
+"
     "👋 **Sparkles's Auto Middleman Service**\n"
     "> Make sure to follow the steps and read the instructions thoroughly.\n"
     "> Please explicitly state the trade details if the information below is inaccurate.\n"
     f"> By using this bot, you agree to our ToS [#・tos]({tos_link}).\n\n"
     f"<@{interaction.user.id}>'s side:\n"
-    "```
-"
+    "````\n"
     "eeee\n"
     "```"
 )
 seller_content = (
-    f"<@{user.id}>'s side:\n"
-    "```
             requests.post(
+    f"<@{user.id}>'s side:\n"
+    "````\n"
     "eeee\n"
     "```"
 )

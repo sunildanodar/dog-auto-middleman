@@ -16,7 +16,7 @@ from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_paymen
 from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
-print("[STARTUP] Dog Auto MM Bot process started (unique diagnostic print)")
+print("[STARTUP] Sparkles Auto Middleman bot process started (unique diagnostic print)")
 init()
 active_monitors = set()
 slash_synced = False
@@ -27,8 +27,8 @@ PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
 WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
 WITHDRAW_RETRY_BASE_SECONDS = 180
 WITHDRAW_RETRY_MAX_ATTEMPTS = 5
-SPARKLES_TITLE = "Dog Auto Middleman"
-SPARKLES_FOOTER = "Dog Auto Middleman"
+SPARKLES_TITLE = "Sparkles Auto Middleman"
+SPARKLES_FOOTER = "Sparkles Auto Middleman"
 SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
 MIN_DEAL_USD = 0.1
 MAX_DEAL_USD = 50000.0
@@ -39,34 +39,63 @@ payment_view_registered = False
 backup_task_started = False
 security_alert_last_sent = {}
 
-@bot.command(name='panel', aliases=['sparkles_panel'], help='Show Dog Auto Middleman panel with all options')
+@bot.command(name='panel', aliases=['sparkles_panel'], help='Show the Sparkles Auto Middleman panel')
 async def panel(ctx):
-    embed = discord.Embed(
-        title="Dog Auto Middleman",
+    intro_embed = discord.Embed(
+        title="Sparkles's Auto Middleman",
         description=(
-            "**PREMIUM ESCROW TICKET OPENED**\n"
-            "Secure middleman workflow for high-trust trades.\n\n"
-            "**AVAILABLE NETWORKS**\n"
-            "**LTC** - Litecoin escrow deals\n"
-            "**USDT [BEP-20]** - USDT on BNB Smart Chain\n"
-            "**USDT [ETH]** - USDT on Ethereum\n\n"
-            "**HOW IT WORKS**\n"
-            "Buyer and seller confirm terms, fund escrow, then release safely through the bot.\n\n"
-            "**LTC**      **USDT [BEP-20]**      **USDT [ETH]**\n"
-            "`Fast Litecoin`      `Best for BNB Smart`     `ERC-20 escrow on`\n"
-            "`middleman deals`    `Chain trades`            `Ethereum`\n\n"
-            "**Open A Deal**\nUse the buttons below in this order: `LTC, BEP-20, USDT ETH`."
+            "• **Paid Service**\n"
+            "• Read our ToS before using the bot: `# 🌺・tos`\n"
+            "• The ToS in `# 🏹・mm-tos` also apply here.\n\n"
+            "**Fees:**\n"
+            "• Deals $250+: $1.50\n"
+            "• Deals under $250: $0.50\n"
+            "• Deals under $50 are **FREE**"
         ),
-        color=0x23272A,
+        color=0x1F2328,
     )
-    embed.set_thumbnail(url="https://your.sparkles.logo/here.png")
-    embed.set_footer(text="Dog Auto Middleman")
-    await ctx.send(embed=embed, view=SparklesPanelView())
+    ltc_embed = discord.Embed(
+        title="🪙 • Request Litecoin • 🪙",
+        description="• Litecoin, LTC",
+        color=0x5865F2,
+    )
+    usdt_embed = discord.Embed(
+        title="🪙 • Request USDT [BEP-20] • 🪙",
+        description="• Network: BSC (BEP-20)",
+        color=0x22C55E,
+    )
+    intro_embed.title = "Sparkles's Auto Middleman"
+    intro_embed.description = (
+        "• **Paid Service**\n"
+        "• Read our ToS before using the bot: `# 🌺・tos`\n"
+        "• The ToS in `# 🏹・mm-tos` also apply here.\n\n"
+        "**Fees:**\n"
+        "• Deals $250+: $1.50\n"
+        "• Deals under $250: $0.50\n"
+        "• Deals under $50 are **FREE**"
+    )
+    ltc_embed.title = "🪙 • Request Litecoin • 🪙"
+    ltc_embed.description = "• Litecoin, LTC"
+    usdt_embed.title = "💸 • Request USDT [BEP-20] • 💸"
+    usdt_embed.description = "• Network: BSC (BEP-20)"
+    intro_embed.set_footer(text="Sparkles Trade")
+    await ctx.send(embed=intro_embed, view=TutorialView())
+    await ctx.send(embed=ltc_embed, view=RequestLTCView())
+    await ctx.send(embed=usdt_embed, view=RequestUSDTBEP20View())
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)
     if ch:
         asyncio.create_task(ch.send(msg))
+
+
+class TutorialView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="Tutorial", style=discord.ButtonStyle.secondary)
+    async def tutorial(self, interaction, button):
+        await interaction.response.send_message("Tutorial is not configured on this build yet.", ephemeral=True)
 
 
 async def send_security_alert(message, key="generic", cooldown_seconds=600):
@@ -83,7 +112,7 @@ async def send_security_alert(message, key="generic", cooldown_seconds=600):
     if channel is None:
         return
     try:
-        await channel.send(f"⚠️ SECURITY ALERT\n{message}")
+        await channel.send(f"[SECURITY ALERT]\n{message}")
     except Exception:
         pass
 
@@ -143,7 +172,7 @@ async def backup_loop():
 async def version_check(ctx):
     """Instantly show current code version to verify Railway deployment"""
     embed = discord.Embed(
-        title="🔍 Code Version Running",
+        title="Code Version Running",
         description=f"```\n{CODE_VERSION}\n```",
         color=0x2ecc71
     )
@@ -358,11 +387,11 @@ async def retry_withdrawal(ticket_id, crypto, channel_id, message_id):
 
 def build_amount_embed(amount, description):
     embed = discord.Embed(
-        title=f"USD amount set to ${amount:.2f}",
+        title=f"▫️ • USD amount set to ${amount:.2f}",
         description="Please confirm the USD amount.",
         color=0x16181D,
     )
-    embed.add_field(name="Deal Details", value=description or "No description provided", inline=False)
+    embed.title = f"▫️ • USD amount set to ${amount:.2f}"
     return embed
 
 
@@ -370,30 +399,48 @@ def build_payment_embed(ticket, wallet_address):
     crypto = ticket[4]
     amount_usd = float(ticket[5])
     amount_crypto = get_locked_amount_crypto(ticket) if crypto == "LTC" else amount_usd
+    ltc_price_text = ""
+    if crypto == "LTC":
+        try:
+            current_price = amount_usd / amount_crypto if amount_crypto else 0
+            if current_price > 0:
+                ltc_price_text = f"\nCurrent LTC Price: `${current_price:.2f}`"
+        except Exception:
+            pass
     embed = discord.Embed(
-        title="Payment Information",
-        description=f"Make sure to send the EXACT amount in {crypto}.",
+        title="📜 • Payment Information",
+        description=(
+            f"Make sure to send the EXACT amount in {crypto}."
+            f"{ltc_price_text}\n"
+            "This ticket will be closed within 20 minutes if no transaction was detected."
+        ),
         color=0x16181D,
     )
+    embed.title = "📜 • Payment Information"
     embed.add_field(name="USD Amount", value=f"`$ {amount_usd:.2f}`", inline=True)
     embed.add_field(name=f"{crypto} Amount", value=f"`{format_asset_amount(amount_crypto, crypto)}`", inline=True)
     embed.add_field(name="Payment Address", value=f"```{wallet_address}```", inline=False)
-    embed.set_footer(text="This ticket will be closed within 20 minutes if no transaction was detected.")
     return embed
 
 
 def build_ticket_startup_embed(bot_user):
     embed = discord.Embed(
-        title="Sparkles's Auto Middleman Service",
+        title="👋 • Sparkles's Auto Middleman Service",
         description=(
-            "> Make sure to follow the steps and read the instructions thoroughly.\n"
-            "> Please explicitly state the trade details if the information below is inaccurate."
+            "Make sure to follow the steps and read the instructions thoroughly.\n"
+            "Please explicitly state the trade details if the information below is inaccurate.\n"
+            "By using this bot, you agree to our ToS `# 🌺・tos`."
         ),
         color=0x16181D,
     )
+    embed.title = "👋 • Sparkles's Auto Middleman Service"
+    embed.description = (
+        "Make sure to follow the steps and read the instructions thoroughly.\n"
+        "Please explicitly state the trade details if the information below is inaccurate.\n"
+        "By using this bot, you agree to our ToS `# 🌺・tos`."
+    )
     if bot_user is not None:
         embed.set_author(name="Auto Middleman", icon_url=str(bot_user.display_avatar.url))
-    embed.set_footer(text="Follow the setup below to continue.")
     return embed
 
 
@@ -402,25 +449,30 @@ def build_role_selection_embed(crypto, roles):
     receiver_id = next((user_id for user_id, role in roles.items() if role == "seller"), None)
     asset_text = "LTC" if crypto == "LTC" else asset_label(crypto)
     embed = discord.Embed(
-        title="Select your role",
+        title="🎭 • Select your role",
         description=(
-            f"- **Sender** if you are sending {asset_text} to the bot.\n"
-            f"- **Receiver** if you are receiving {asset_text} later from the bot."
+            f"• **Sender** if you are **Sending** {asset_text} to the bot.\n"
+            f"• **Receiver** if you are **Receiving** {asset_text} later from the bot."
         ),
         color=0x16181D,
     )
+    embed.title = "🎭 • Select your role"
+    embed.description = (
+        f"• **Sender** if you are **Sending** {asset_text} to the bot.\n"
+        f"• **Receiver** if you are **Receiving** {asset_text} later from the bot."
+    )
     embed.add_field(name="Sender", value=f"<@{sender_id}>" if sender_id else "...", inline=True)
     embed.add_field(name="Receiver", value=f"<@{receiver_id}>" if receiver_id else "...", inline=True)
-    embed.set_footer(text="Both users must choose opposite roles before continuing.")
     return embed
 
 
 def build_role_confirmation_embed(sender_id, receiver_id):
     embed = discord.Embed(
-        title="Is This Information Correct?",
+        title="▫️▫️ • Is This Information Correct?",
         description='Make sure you have selected the right role! If you didn\'t then click "Incorrect"',
         color=0x16181D,
     )
+    embed.title = "▫️▫️ • Is This Information Correct?"
     embed.add_field(name="Sender", value=f"<@{sender_id}>", inline=True)
     embed.add_field(name="Receiver", value=f"<@{receiver_id}>", inline=True)
     return embed
@@ -428,9 +480,10 @@ def build_role_confirmation_embed(sender_id, receiver_id):
 
 def build_set_amount_prompt_embed():
     embed = discord.Embed(
-        title="Set the amount in USD value",
+        title="💵 • Set the amount in USD value",
         color=0x16181D,
     )
+    embed.title = "💵 • Set the amount in USD value"
     return embed
 
 
@@ -444,9 +497,9 @@ def resolve_display_media_url(member):
         return str(asset.url)
 
 
-def build_ticket_side_embed(member, label, color):
+def build_ticket_side_embed(member, label, color, trade_text=""):
     embed = discord.Embed(
-        description=f"**{label}**\n```eeee```",
+        description=f"**{label}**\n```{trade_text or '...'} ```",
         color=color,
     )
     media_url = resolve_display_media_url(member)
@@ -457,10 +510,11 @@ def build_ticket_side_embed(member, label, color):
 
 def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid=None, confirmations=0, received_amount=None):
     embed = discord.Embed(
-        title="Transaction Detected",
+        title="⚠️ • Transaction Detected",
         description=f"The transaction is currently **unconfirmed** and waiting for {CONFIRMATIONS_REQUIRED} confirmation.",
         color=0xF0B429,
     )
+    embed.title = "⚠️ • Transaction Detected"
     if txid:
         embed.add_field(name="Transaction", value=f"`{short_txid(txid)}` ({format_asset_amount(received_amount, crypto)} {crypto})" if received_amount is not None else f"`{short_txid(txid)}`", inline=False)
     formatted_received = format_asset_amount(received_amount, crypto) if received_amount is not None else "?"
@@ -548,8 +602,10 @@ class PaymentDetailsView(ui.View):
             ephemeral=True,
         )
 
-class RequestModal(ui.Modal, title="Request Middleman Service"):
-    user_input = ui.TextInput(label="Enter User ID or @mention", placeholder="123456789 or @user")
+class RequestModal(ui.Modal, title="Fill out the format"):
+    user_input = ui.TextInput(label="Paste Your Trader's Username or ID", placeholder="e.g.: kookie.py / 693059117761429610")
+    you_give = ui.TextInput(label="What are You giving?")
+    trader_gives = ui.TextInput(label="What is Your Trader giving?")
 
     def __init__(self, crypto):
         super().__init__()
@@ -558,14 +614,27 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
     async def on_submit(self, interaction):
         channel = None
         deal_id = f"pending-{int(time.time())}"
+        trader_gives = (self.trader_gives.value or "...").strip()
+        you_give = (self.you_give.value or "...").strip()
+        raw_target = self.user_input.value.strip()
         try:
-            user_id = int(self.user_input.value.strip('<@!>'))
-            user = interaction.guild.get_member(user_id)
+            user = None
+            user_id = None
+            cleaned = raw_target.strip('<@!>')
+            if cleaned.isdigit():
+                user_id = int(cleaned)
+                user = interaction.guild.get_member(user_id)
+            if user is None:
+                lowered = raw_target.lower().lstrip("@")
+                user = discord.utils.find(
+                    lambda member: member.name.lower() == lowered or member.display_name.lower() == lowered,
+                    interaction.guild.members,
+                )
             if not user:
                 await interaction.response.send_message("User not found.", ephemeral=True)
                 return
         except Exception:
-            await interaction.response.send_message("Invalid user ID.", ephemeral=True)
+            await interaction.response.send_message("Invalid user ID or username.", ephemeral=True)
             return
 
         # Acknowledge quickly so Discord does not show "Something went wrong"
@@ -576,7 +645,9 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
             category = interaction.guild.get_channel(TICKET_CATEGORY_ID)
             ticket_id = get_next_ticket_id()
             deal_id = f"{ticket_id}-{int(time.time())}"
-            channel = await interaction.guild.create_text_channel(f"ticket-{ticket_id}", category=category)
+            asset_slug = "ltc" if self.crypto == "LTC" else "usdt"
+            user_slug = re.sub(r"[^a-z0-9_]+", "_", (user.display_name or user.name).lower()).strip("_") or "trade"
+            channel = await interaction.guild.create_text_channel(f"{asset_slug}-{user_slug}-{ticket_id}", category=category)
 
             # Ensure ticket participants + bot can read/send; hide from everyone else.
             bot_member = interaction.guild.me
@@ -597,8 +668,8 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
 
 
             startup_embed = build_ticket_startup_embed(bot.user)
-            side_one_embed = build_ticket_side_embed(interaction.user, f"{interaction.user.mention}'s side:", 0x1B1D24)
-            side_two_embed = build_ticket_side_embed(user, f"{user.mention}'s side:", 0x1B1D24)
+            side_one_embed = build_ticket_side_embed(interaction.user, f"{interaction.user.mention}'s side:", 0x1B1D24, you_give)
+            side_two_embed = build_ticket_side_embed(user, f"{user.mention}'s side:", 0x1B1D24, trader_gives)
             webhook = await channel.create_webhook(name="Auto Middleman")
             try:
                 await webhook.send(
@@ -616,7 +687,7 @@ class RequestModal(ui.Modal, title="Request Middleman Service"):
             role_view = RoleSelectView(ticket_id, interaction.user.id, user.id, self.crypto)
             role_msg = await channel.send(embed=build_role_selection_embed(self.crypto, role_view.roles), view=role_view)
 
-            save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", role_msg.id, "", deal_id)
+            save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", role_msg.id, f"you_give={you_give} | trader_gives={trader_gives}", deal_id)
             await audit(interaction.guild, ticket_id, "ticket_created", f"buyer={interaction.user.id} seller={user.id} crypto={self.crypto} deal_id={deal_id}")
             await interaction.followup.send(f"Ticket created: {channel.mention}", ephemeral=True)
         except Exception as exc:
@@ -642,6 +713,23 @@ class DeleteTicketView(ui.View):
         await audit(interaction.guild, self.ticket_id, "ticket_deleted", f"deleted_by={interaction.user.id}")
         await interaction.response.send_message("Deleting ticket...", ephemeral=True)
         await interaction.channel.delete(reason=f"Ticket {self.ticket_id} deleted by {interaction.user.id}")
+
+
+class CloseTicketView(ui.View):
+    def __init__(self, ticket_id, user1, user2):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.user1 = user1
+        self.user2 = user2
+
+    @ui.button(label="🔒 ・ Close Ticket", style=discord.ButtonStyle.danger)
+    async def close_ticket(self, interaction, button):
+        if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
+            await interaction.response.send_message("Only ticket participants or the bot admin can close this ticket.", ephemeral=True)
+            return
+        await audit(interaction.guild, self.ticket_id, "ticket_closed", f"closed_by={interaction.user.id}")
+        await interaction.response.send_message("Closing ticket...", ephemeral=True)
+        await interaction.channel.delete(reason=f"Ticket {self.ticket_id} closed by {interaction.user.id}")
 
 
 class RoleSelectView(ui.View):
@@ -685,7 +773,6 @@ class RoleSelectView(ui.View):
         if previous_role == role_name:
             await interaction.response.defer()
             await self.sync_role_message(interaction)
-            await interaction.followup.send(f"Selected **{label}** for <@{interaction.user.id}>.", ephemeral=False)
             if len(self.roles) == 2 and len(set(self.roles.values())) == 2:
                 await self.finalize_roles(interaction)
             return
@@ -695,7 +782,6 @@ class RoleSelectView(ui.View):
         self.roles[other_user_id] = "seller" if role_name == "buyer" else "buyer"
         await interaction.response.defer()
         await self.sync_role_message(interaction)
-        await interaction.followup.send(f"Selected **{label}** for <@{interaction.user.id}>.", ephemeral=False)
 
         if len(self.roles) == 2 and len(set(self.roles.values())) == 2:
             await self.finalize_roles(interaction)
@@ -720,7 +806,6 @@ class RoleSelectView(ui.View):
             child.disabled = False
         await interaction.response.defer()
         await self.sync_role_message(interaction)
-        await interaction.followup.send(f"Role selection was reset by <@{interaction.user.id}>. Please choose roles again.", ephemeral=False)
 
 
 class InfoConfirmView(ui.View):
@@ -763,9 +848,8 @@ class InfoConfirmView(ui.View):
         await interaction.response.send_message("Please use the role selection above to choose the correct roles again.", ephemeral=False)
 
 
-class AmountModal(ui.Modal, title="Enter Deal Details"):
-    amount = ui.TextInput(label="Amount in USD", placeholder="100.00")
-    description = ui.TextInput(label="Deal Description (Optional)", placeholder="What are you trading?", style=discord.TextStyle.paragraph, required=False)
+class AmountModal(ui.Modal, title="Set USD Amount"):
+    amount = ui.TextInput(label="Please state the amount in USD value", placeholder="e.g.: 435.20")
 
     def __init__(self, ticket_id, buyer_id, crypto):
         super().__init__()
@@ -788,7 +872,7 @@ class AmountModal(ui.Modal, title="Enter Deal Details"):
                 ephemeral=True,
             )
             return
-        desc = self.description.value or "No description provided"
+        desc = "No description provided"
         update_ticket(self.ticket_id, amount=amt, description=desc)
         await audit(interaction.guild, self.ticket_id, "amount_set", f"usd={amt:.2f} description={desc[:120]}")
         embed = build_amount_embed(amt, desc)
@@ -918,7 +1002,7 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                     update_ticket(ticket_id, status="paid")
                     await audit(msg.guild, ticket_id, "payment_confirmed", f"txid={txid} confirmations={conf} received={received_ltc:.8f}")
                     embed = discord.Embed(
-                        title="Transaction Confirmed!",
+                        title="✅ • Transaction Confirmed!",
                         description="",
                         color=0x10B981,
                     )
@@ -929,7 +1013,7 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                     ticket = get_ticket(ticket_id)
                     if ticket:
                         instructions = discord.Embed(
-                            title="You may proceed with your trade.",
+                            title="✅ • You may proceed with your trade.",
                             description=(
                                 f"1. <@{ticket[3]}> Give your trader the items or payment you agreed on.\n\n"
                                 f"2. <@{ticket[2]}> Once you have received your items, click \"Release\" so your trader can claim the {crypto}."
@@ -1048,8 +1132,8 @@ class ReleaseRefundView(ui.View):
                 return
 
         warning = discord.Embed(
-            title=f"Are you sure you want to release the {self.crypto}?",
-            description=f'Click "Confirm" will give your trader permission to withdraw the {self.crypto}.',
+            title=f"⚠️ Are you sure you want to release the {self.crypto}? ⚠️",
+            description=f'Clicking "Confirm" will give your trader permission to withdraw the {self.crypto}.',
             color=0xF0B429,
         )
         await audit(interaction.guild, self.ticket_id, "release_started", f"buyer={interaction.user.id}")
@@ -1110,7 +1194,7 @@ class ReleaseModal(ui.Modal, title="Enter Seller Address"):
         await audit(interaction.guild, self.ticket_id, "seller_address_submitted", f"seller={interaction.user.id} address={seller_address}")
 
         embed = discord.Embed(
-            title="Confirm Address",
+            title="⚠️ • Confirm Address",
             description=f"**Address:** `{seller_address}`\n\nClick \"Confirm\" to send {self.crypto} or \"Back\" to cancel.",
             color=0xF0B429
         )
@@ -1122,6 +1206,8 @@ class ReleaseWarningView(ui.View):
         super().__init__(timeout=None)
         self.ticket_id = ticket_id
         self.crypto = crypto
+        if self.children:
+            self.children[0].label = "(2) Confirm"
 
     @ui.button(label="Confirm", style=discord.ButtonStyle.success)
     async def confirm(self, interaction, button):
@@ -1134,7 +1220,7 @@ class ReleaseWarningView(ui.View):
             return
 
         embed = discord.Embed(
-            title=f"What's Your {self.crypto} Address?",
+            title=f"⚪ • What's Your {self.crypto} Address?",
             description=f"Make sure to paste your correct {self.crypto} address.",
             color=0x16181D,
         )
@@ -1167,6 +1253,8 @@ class ReleaseConfirmView(ui.View):
         super().__init__(timeout=None)
         self.ticket_id = ticket_id
         self.crypto = crypto
+        if self.children:
+            self.children[0].label = "(2) Confirm"
 
     @ui.button(label="Confirm", style=discord.ButtonStyle.success)
     async def confirm(self, interaction, button):
@@ -1214,6 +1302,11 @@ class ReleaseConfirmView(ui.View):
 
         # Acknowledge immediately to avoid 3s interaction timeout during API calls.
         await interaction.response.defer()
+        sending_embed = discord.Embed(
+            title="◌ • Sending...",
+            color=0x16181D,
+        )
+        await interaction.followup.send(embed=sending_embed)
         update_ticket(self.ticket_id, status="releasing")
         await audit(interaction.guild, self.ticket_id, "withdraw_attempt", f"seller={interaction.user.id} address={ticket[9]}")
 
@@ -1228,13 +1321,13 @@ class ReleaseConfirmView(ui.View):
                 f"txid={fake_txid} address={ticket[9]} unconfirmed=true",
             )
             embed = discord.Embed(
-                title="Withdrawal Successful",
+                title="✅ • Withdrawal Successful",
                 description="Use /setprivacy to display your user in `#-completed`",
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
             embed.add_field(name="Amount Sent", value=f"`{format_asset_amount(usd_to_ltc(ltc_seller_payout_usd(ticket[5])) if self.crypto == 'LTC' else seller_payout_usd(ticket[5], self.crypto), self.crypto)}` {self.crypto} (${ticket[5]:.2f})", inline=False)
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, view=CloseTicketView(self.ticket_id, ticket[2], ticket[3]))
             withdraw_processing.discard(self.ticket_id)
             return
 
@@ -1290,14 +1383,14 @@ class ReleaseConfirmView(ui.View):
             update_ticket(self.ticket_id, status="completed")
             await audit(interaction.guild, self.ticket_id, "withdraw_success", f"txid={txid} address={ticket[9]}")
             embed = discord.Embed(
-                title="Withdrawal Successful",
+                title="✅ • Withdrawal Successful",
                 description="Use /setprivacy to display your user in `#-completed`",
                 color=0x00FF00
             )
             embed.add_field(name="Transaction", value=f"`{txid}`", inline=False)
             amount_sent = usd_to_ltc(ltc_seller_payout_usd(ticket[5])) if self.crypto == "LTC" else seller_payout_usd(ticket[5], self.crypto)
             embed.add_field(name="Amount Sent", value=f"`{format_asset_amount(amount_sent, self.crypto)}` {self.crypto} (${ticket[5]:.2f})", inline=False)
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, view=CloseTicketView(self.ticket_id, ticket[2], ticket[3]))
             withdraw_processing.discard(self.ticket_id)
         except Exception as e:
             update_ticket(self.ticket_id, status="paid")
@@ -1313,7 +1406,7 @@ class RequestLTCView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, emoji="🪙", custom_id="panel_request_ltc")
+    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, custom_id="panel_request_ltc")
     async def ltc(self, interaction, button):
         await interaction.response.send_modal(RequestModal("LTC"))
 
@@ -1322,7 +1415,7 @@ class RequestUSDTBEP20View(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, emoji="💎", custom_id="panel_request_usdt_bep20")
+    @ui.button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="panel_request_usdt_bep20")
     async def usdt_bep20(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_BEP20"))
 
@@ -1331,7 +1424,7 @@ class RequestUSDTETHView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request USDT [ETH]", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="panel_request_usdt_eth")
+    @ui.button(label="Request USDT [ETH]", style=discord.ButtonStyle.secondary, custom_id="panel_request_usdt_eth")
     async def usdt_eth(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_ETH"))
 
@@ -1340,17 +1433,13 @@ class SparklesPanelView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="LTC", style=discord.ButtonStyle.primary, emoji="🪙", custom_id="sparkles_panel_request_ltc", row=0)
+    @ui.button(label="LTC", style=discord.ButtonStyle.primary, custom_id="sparkles_panel_request_ltc", row=0)
     async def ltc(self, interaction, button):
         await interaction.response.send_modal(RequestModal("LTC"))
 
-    @ui.button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, emoji="💎", custom_id="sparkles_panel_request_usdt_bep20", row=0)
+    @ui.button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="sparkles_panel_request_usdt_bep20", row=0)
     async def usdt_bep20(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_BEP20"))
-
-    @ui.button(label="USDT [ETH]", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="sparkles_panel_request_usdt_eth", row=0)
-    async def usdt_eth(self, interaction, button):
-        await interaction.response.send_modal(RequestModal("USDT_ETH"))
 
 
 
@@ -1413,11 +1502,11 @@ def build_commands_overview_pages(lines):
 async def send_commands_overview_pages(send_callable, pages):
     for index, page_lines in enumerate(pages, start=1):
         embed = discord.Embed(
-            title="Dog Auto Mm Bot",
+            title=SPARKLES_TITLE,
             description="**COMMAND LIST**\n" + "\n".join(page_lines),
             color=0x3498DB,
         )
-        embed.set_footer(text=f"Dog Auto Mm Bot | Auto-updated ({index}/{len(pages)})")
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated ({index}/{len(pages)})")
         await send_callable(embed)
 
 
@@ -1444,11 +1533,11 @@ async def commands_overview_slash(interaction: discord.Interaction):
     pages = build_commands_overview_pages(lines)
     if not interaction.response.is_done():
         first_embed = discord.Embed(
-            title="Dog Auto Mm Bot",
+            title=SPARKLES_TITLE,
             description="**COMMAND LIST**\n" + "\n".join(pages[0]),
             color=0x3498DB,
         )
-        first_embed.set_footer(text=f"Dog Auto Mm Bot | Auto-updated (1/{len(pages)})")
+        first_embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated (1/{len(pages)})")
         await interaction.response.send_message(embed=first_embed, ephemeral=True)
         start_index = 2
     else:
@@ -1456,11 +1545,11 @@ async def commands_overview_slash(interaction: discord.Interaction):
 
     for page_index in range(start_index, len(pages) + 1):
         embed = discord.Embed(
-            title="Dog Auto Mm Bot",
+            title=SPARKLES_TITLE,
             description="**COMMAND LIST**\n" + "\n".join(pages[page_index - 1]),
             color=0x3498DB,
         )
-        embed.set_footer(text=f"Dog Auto Mm Bot | Auto-updated ({page_index}/{len(pages)})")
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Auto-updated ({page_index}/{len(pages)})")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds):
@@ -1473,11 +1562,11 @@ async def finalize_fake_confirmation(guild, ticket_id, msg, crypto, wait_seconds
         update_ticket(ticket_id, status="paid")
         await audit(guild, ticket_id, "fake_payment_confirmed", f"auto_confirm_after_{wait_seconds}s")
         embed = discord.Embed(
-            title="Dog Auto Mm Bot",
+            title=SPARKLES_TITLE,
             description="**PAYMENT CONFIRMED**\nDeposit verified successfully. Release controls are now ready.",
             color=0x10B981,
         )
-        embed.set_footer(text="Dog Auto Mm Bot | Confirm delivery before releasing")
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Confirm delivery before releasing")
         release_msg = await msg.channel.send(embed=embed, view=ReleaseRefundView(ticket_id, crypto))
         update_ticket(ticket_id, message_id=release_msg.id)
     finally:
@@ -1628,7 +1717,7 @@ async def repair_release(ctx, channel_id: int = None):
         await audit(ctx.guild, ticket[0], "release_repaired_status", f"by={ctx.author.id} from={original_status} to=paid")
 
     embed = discord.Embed(
-        title="Dog Auto Mm Bot",
+        title=SPARKLES_TITLE,
         description=(
             f"**RELEASE FLOW REPAIRED**\nRelease controls have been restored for this ticket.\n\n"
             f"Buyer: <@{ticket[2]}>\n"
@@ -1638,7 +1727,7 @@ async def repair_release(ctx, channel_id: int = None):
         ),
         color=0x2ECC71,
     )
-    embed.set_footer(text="Dog Auto Mm Bot")
+    embed.set_footer(text=SPARKLES_FOOTER)
 
     repaired_msg = await target_channel.send(
         f"<@{ticket[2]}> <@{ticket[3]}>",
@@ -1679,7 +1768,7 @@ async def emergency_recover(ctx, channel_id: int = None):
             decrypted_key = f"DECRYPTION_FAILED: {exc}"
 
     recovery_embed = discord.Embed(
-        title="Dog Auto Mm Bot",
+        title=SPARKLES_TITLE,
         description="**EMERGENCY RECOVERY PACKAGE**\nHighly sensitive recovery details for this ticket.",
         color=0xE67E22,
     )
@@ -1762,7 +1851,7 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
         embed.add_field(name="Seller", value=f"<@{ticket[3]}>", inline=True)
         embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=False)
         embed.add_field(name="Payout Address", value=f"`{payout_address}`", inline=False)
-        embed.set_footer(text="Dog Escrow | Admin force release")
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Admin force release")
         await target_channel.send(embed=embed)
         if target_channel.id != ctx.channel.id:
             await ctx.send(f"Force release completed in {target_channel.mention}.")
@@ -1797,7 +1886,7 @@ async def force_release(ctx, channel_id: int = None, seller_address: str = None)
         embed.add_field(name="Payout Address", value=f"`{payout_address}`", inline=False)
         if ticket[4] == "LTC":
             embed.add_field(name="Explorer", value=ltc_tx_link(txid), inline=False)
-        embed.set_footer(text="Dog Escrow | Admin force release")
+        embed.set_footer(text=f"{SPARKLES_FOOTER} | Admin force release")
         await target_channel.send(embed=embed)
         if target_channel.id != ctx.channel.id:
             await ctx.send(f"Force release completed in {target_channel.mention}.")
@@ -1834,11 +1923,11 @@ async def ticket_audit(ctx, channel_id: int = None):
     chain_status = "INTACT" if chain_ok else f"FAILED_AT_EVENT_{bad_index}"
     lines = [f"{created_at} | {event} | {details}" for event, details, created_at in events]
     embed = discord.Embed(
-        title="Dog Auto Mm Bot",
+        title=SPARKLES_TITLE,
         description=f"**TICKET AUDIT #{ticket[0]}**\nChain: `{chain_status}`\n" + "\n".join(lines[:10]),
         color=0x5865F2,
     )
-    embed.set_footer(text="Dog Auto Mm Bot")
+    embed.set_footer(text=SPARKLES_FOOTER)
     await ctx.send(embed=embed)
 
 
@@ -1864,15 +1953,15 @@ async def generate_proof(ctx, channel_id: int = None):
     completed_at = int(time.time())
 
     proof_embed = discord.Embed(
-        title="🎉 • Deal Proof",
-        description=f"**${ticket[5]:.2f} {ticket[4]}**\nThis deal was completed through Sparkles Middleman Bot.",
+        title="Deal Proof",
+        description=f"**${ticket[5]:.2f} {ticket[4]}**\nThis deal was completed through {SPARKLES_TITLE}.",
         color=0x10B981,
     )
     proof_embed.add_field(name="Ticket", value=f"`#{ticket[0]}`", inline=True)
     proof_embed.add_field(name="Buyer", value=f"<@{ticket[2]}>", inline=True)
     proof_embed.add_field(name="Seller", value=f"<@{ticket[3]}>", inline=True)
     proof_embed.add_field(name="Transaction ID", value=f"`{random_txid}`", inline=False)
-    proof_embed.set_footer(text="Proof generated by Sparkles Bot")
+    proof_embed.set_footer(text=f"Proof generated by {SPARKLES_FOOTER}")
 
     await target_channel.send(embed=proof_embed)
     await audit(ctx.guild, ticket[0], "proof_generated", f"by={ctx.author.id} txid={random_txid}")
@@ -1985,7 +2074,7 @@ async def proof(ctx, *parts):
         proof_color = 0x111827
         explorer_func = ltc_tx_link
         asset_label_display = "LTC"
-        emoji = "🕓"
+        emoji = "LTC"
     else:
         amount_crypto = amount_value
         # Always generate a random txid if not provided
@@ -1994,10 +2083,10 @@ async def proof(ctx, *parts):
         proof_color = 0x10B981
         explorer_func = lambda txid: f"https://bscscan.com/tx/{txid}"
         asset_label_display = "USDT [BEP-20]"
-        emoji = "💵"
+        emoji = "USDT"
 
     proof_embed = discord.Embed(
-        title=f"{emoji} • Trade Completed",
+        title=f"{emoji} - Trade Completed",
         description=f"**{amount_crypto:.8f} {asset_label_display} (${amount_value:.2f} USD)**",
         color=proof_color,
     )
@@ -2068,11 +2157,11 @@ async def quota(ctx):
         f"Per-second: `{hits.get('api/second', 'n/a')}` / `{limits.get('api/second', 'n/a')}`",
     ]
     embed = discord.Embed(
-        title="Dog Auto Mm Bot",
+        title=SPARKLES_TITLE,
         description="**BLOCKCYPHER QUOTA**\n" + "\n".join(lines),
         color=0x3498DB,
     )
-    embed.set_footer(text="Dog Auto Mm Bot")
+    embed.set_footer(text=SPARKLES_FOOTER)
     await ctx.send(embed=embed)
 
 
@@ -2102,14 +2191,14 @@ async def backup_export(ctx):
     try:
         result = create_encrypted_backup_export()
         embed = discord.Embed(
-            title="Dog Auto Mm Bot",
+            title=SPARKLES_TITLE,
             description="**ENCRYPTED BACKUP EXPORT CREATED**\nStore this file in offsite storage.",
             color=0x10B981,
         )
         embed.add_field(name="Backup File", value=f"`{result.get('backup_path')}`", inline=False)
         embed.add_field(name="Encrypted Export", value=f"`{result.get('export_path')}`", inline=False)
         embed.add_field(name="SHA256 (plaintext)", value=f"`{result.get('sha256')}`", inline=False)
-        embed.set_footer(text="Dog Auto Mm Bot")
+        embed.set_footer(text=SPARKLES_FOOTER)
         await ctx.send(embed=embed)
     except Exception as exc:
         await ctx.send(f"Encrypted backup export failed: `{str(exc)[:900]}`")
@@ -2128,7 +2217,7 @@ async def security_status(ctx):
         age = snapshot.get("last_backup_age_seconds")
         age_text = "never" if age is None else f"{age}s ago"
         embed = discord.Embed(
-            title="Dog Auto Mm Bot",
+            title=SPARKLES_TITLE,
             description="**SECURITY STATUS**\nDatabase and key safety snapshot.",
             color=0x10B981,
         )
@@ -2142,7 +2231,7 @@ async def security_status(ctx):
         embed.add_field(name="Startup Max Backup Age", value=f"{BACKUP_STARTUP_MAX_AGE_MINUTES} min", inline=True)
         embed.add_field(name="DB Path", value=f"`{snapshot.get('db_path')}`", inline=False)
         embed.add_field(name="Backup Dir", value=f"`{snapshot.get('backup_dir')}`", inline=False)
-        embed.set_footer(text="Dog Auto Mm Bot")
+        embed.set_footer(text=SPARKLES_FOOTER)
         await ctx.send(embed=embed)
     except Exception as exc:
         await ctx.send(f"Security status check failed: `{str(exc)[:900]}`")

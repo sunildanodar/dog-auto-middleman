@@ -1,4 +1,62 @@
 ﻿import discord
+from discord.ext import commands
+from discord.ui import Button, View
+# ...existing code...
+
+# --- 1:1 UI Embed Command ---
+class RequestView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(Button(label="Request LTC", style=discord.ButtonStyle.primary, custom_id="request_ltc"))
+        self.add_item(Button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="request_usdt_bep20"))
+        self.add_item(Button(label="Request USDT [ERC-20]", style=discord.ButtonStyle.success, custom_id="request_usdt_erc20"))
+
+# Replace 'bot' with your bot instance if named differently
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+
+@bot.command()
+async def start(ctx):
+    embed = discord.Embed(
+        title="Sparkles's Auto Middleman",
+        description="**Paid Service**\n\nRead our ToS before using the bot: #tos\nThe ToS in #mm-tos also apply here.",
+        color=0x23272A
+    )
+    embed.add_field(
+        name="Fees:",
+        value="\u2022 Deals $250+: $1.50\n\u2022 Deals under $250: $0.50\n[Deals under $50 are FREE](https://your-link-here)",
+        inline=False
+    )
+    embed.add_field(
+        name="\u200b",
+        value="**Request Litecoin**\n",
+        inline=False
+    )
+    embed.add_field(
+        name="\u200b",
+        value="**Request USDT [BEP-20]**\nNetwork: BSC (BEP-20)",
+        inline=False
+    )
+    embed.add_field(
+        name="\u200b",
+        value="**Request USDT [ERC-20]**\nNetwork: Ethereum (ERC-20)",
+        inline=False
+    )
+    embed.set_footer(text="Tutorial")
+    await ctx.send(embed=embed, view=RequestView())
+
+# --- Button Interactions (Optional: Add handlers if you want actions) ---
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type == discord.InteractionType.component:
+        if interaction.data["custom_id"] == "request_ltc":
+            await interaction.response.send_message("LTC request initiated!", ephemeral=True)
+        elif interaction.data["custom_id"] == "request_usdt_bep20":
+            await interaction.response.send_message("USDT [BEP-20] request initiated!", ephemeral=True)
+        elif interaction.data["custom_id"] == "request_usdt_erc20":
+            await interaction.response.send_message("USDT [ERC-20] request initiated!", ephemeral=True)
+
+# ...existing code...
+import discord
 import asyncio
 import time
 import datetime
@@ -42,32 +100,32 @@ security_alert_last_sent = {}
 @bot.command(name='panel', aliases=['dog_panel'], help='Show the Dog Auto Middleman panel')
 async def panel(ctx):
     intro_embed = discord.Embed(
-        title="Dog Auto Middleman",
+        title="Sparkles's Auto Middleman",
         description=(
             "• **Paid Service**\n"
-            "• Read our ToS before using the bot: `# 🌺・tos`\n"
-            "• The ToS in `# 🏹・mm-tos` also apply here.\n\n"
+            "• Read our ToS before using the bot: <#🌺・tos>\n"
+            "• The ToS in <#🏹・mm-tos> also apply here.\n\n"
             "**Fees:**\n"
             "• Deals $250+: $1.50\n"
             "• Deals under $250: $0.50\n"
-            "• Deals under $50 are **FREE**"
+            "• Deals under $50 are FREE"
         ),
         color=0x1F2328,
     )
     ltc_embed = discord.Embed(
-        title="🪙 • Request Litecoin • 🪙",
+        title="<:ltc:> **Request Litecoin** <:ltc:>",
         description="• Litecoin, LTC",
-        color=0x5865F2,
+        color=0x23272A,  # Discord dark gray
     )
     usdt_bep20_embed = discord.Embed(
-        title="💸 • Request USDT [BEP-20] • 💸",
+        title="<:usdt:> **Request USDT [BEP-20]** <:usdt:>",
         description="• Network: BSC (BEP-20)",
-        color=0x22C55E,
+        color=0x16A34A,  # Discord green
     )
     usdt_eth_embed = discord.Embed(
-        title="💸 • Request USDT [ETH] • 💸",
+        title="<:usdt:> **Request USDT [ETH]** <:usdt:>",
         description="• Network: Ethereum (ERC-20)",
-        color=0x627EEA,  # Ethereum blue
+        color=0x23272A,  # Discord dark gray for ETH
     )
     intro_embed.set_footer(text="Dog Trade")
     await ctx.send(embed=intro_embed, view=TutorialView())
@@ -1627,7 +1685,7 @@ class RequestLTCView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, custom_id="panel_request_ltc")
+    @ui.button(label="🪙 Request LTC", style=discord.ButtonStyle.primary, custom_id="panel_request_ltc")
     async def ltc(self, interaction, button):
         await interaction.response.send_modal(RequestModal("LTC"))
 
@@ -1636,7 +1694,7 @@ class RequestUSDTBEP20View(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="panel_request_usdt_bep20")
+    @ui.button(label="🦎 Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="panel_request_usdt_bep20")
     async def usdt_bep20(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_BEP20"))
 
@@ -1645,7 +1703,7 @@ class RequestUSDTETHView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Request USDT [ETH]", style=discord.ButtonStyle.secondary, custom_id="panel_request_usdt_eth")
+    @ui.button(label="🦎 Request USDT [ETH]", style=discord.ButtonStyle.secondary, custom_id="panel_request_usdt_eth")
     async def usdt_eth(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_ETH"))
 

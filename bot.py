@@ -99,36 +99,52 @@ security_alert_last_sent = {}
 
 @bot.command(name='panel', aliases=['dog_panel'], help='Show the Dog Auto Middleman panel')
 async def panel(ctx):
-    intro_embed = discord.Embed(
+    # Main info embed with fields and markdown for ToS and Fees
+    main_embed = discord.Embed(
         title="Sparkles's Auto Middleman",
-        description=(
-            "• **Paid Service**\n"
-            "• Read our ToS before using the bot: <#🌺・tos>\n"
-            "• The ToS in <#🏹・mm-tos> also apply here.\n\n"
-            "**Fees:**\n"
-            "• Deals $250+: $1.50\n"
-            "• Deals under $250: $0.50\n"
-            "• Deals under $50 are FREE"
+        color=0x23272A
+    )
+    main_embed.add_field(
+        name="Paid Service",
+        value=(
+            "**Read our ToS before using the bot:** #tos\n"
+            "The ToS in #mm-tos also apply here."
         ),
-        color=0x1F2328,
+        inline=False
     )
+    main_embed.add_field(
+        name="Fees:",
+        value=(
+            "- Deals $250+: $1.50\n"
+            "- Deals under $250: $0.50\n"
+            "[Deals under $50 are FREE](https://your-link-here)"
+        ),
+        inline=False
+    )
+    main_embed.set_footer(text="Tutorial")
+
+    # Litecoin card
     ltc_embed = discord.Embed(
-        title="<:ltc:> **Request Litecoin** <:ltc:>",
+        title="**Request Litecoin**",
         description="• Litecoin, LTC",
-        color=0x23272A,  # Discord dark gray
+        color=0x23272A,
     )
+    # USDT BEP-20 card
     usdt_bep20_embed = discord.Embed(
-        title="<:usdt:> **Request USDT [BEP-20]** <:usdt:>",
+        title="**Request USDT [BEP-20]**",
         description="• Network: BSC (BEP-20)",
-        color=0x16A34A,  # Discord green
+        color=0x16A34A,
     )
+    # USDT ETH card
     usdt_eth_embed = discord.Embed(
-        title="<:usdt:> **Request USDT [ETH]** <:usdt:>",
+        title="**Request USDT [ETH]**",
         description="• Network: Ethereum (ERC-20)",
-        color=0x23272A,  # Discord dark gray for ETH
+        color=0x23272A,
     )
-    intro_embed.set_footer(text="Dog Trade")
-    await ctx.send(embed=intro_embed, view=TutorialView())
+
+    # Send main embed with Tutorial button
+    await ctx.send(embed=main_embed, view=TutorialView())
+    # Send each card with its button
     await ctx.send(embed=ltc_embed, view=RequestLTCView())
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
     await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
@@ -1377,7 +1393,6 @@ class ReleaseRefundView(ui.View):
                                 return
 
 
-                        )
                     else:
                         current_paid, current_conf, current_txid, current_received = detect_usdt_payment(
                             ticket[7],

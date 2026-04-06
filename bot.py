@@ -286,8 +286,8 @@ def ltc_seller_payout_usd(amount_usd):
         value = float(amount_usd)
     except (TypeError, ValueError):
         return 0.0
-    # Apply the same payout fee policy for every LTC deal size.
-    return max(value - LTC_NETWORK_FEE_USD, 0.0)
+    # No fee subtracted, seller gets full amount.
+    return max(value, 0.0)
 
 
 def ltc_deposit_target_usd(amount_usd):
@@ -508,7 +508,19 @@ def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid=None, conf
     )
     embed.title = "⚠️ • Transaction Detected"
     if txid:
-        embed.add_field(name="Transaction", value=f"`{short_txid(txid)}` ({format_asset_amount(received_amount, crypto)} {crypto})" if received_amount is not None else f"`{short_txid(txid)}`", inline=False)
+        # Make txid a clickable link to the explorer, but only show the link in the embed, not the raw URL
+        if str(crypto).upper() == "LTC":
+            tx_url = ltc_tx_link(txid)
+        else:
+            tx_url = None
+        txid_display = short_txid(txid)
+        if tx_url:
+            txid_value = f"[ `{txid_display}` ]({tx_url})"
+        else:
+            txid_value = f"`{txid_display}`"
+        if received_amount is not None:
+            txid_value += f" ({format_asset_amount(received_amount, crypto)} {crypto})"
+        embed.add_field(name="Transaction", value=txid_value, inline=False)
     formatted_received = format_asset_amount(received_amount, crypto) if received_amount is not None else "?"
     formatted_required = format_asset_amount(required_amount, crypto) if required_amount is not None else "?"
     embed.add_field(name="Amount Received", value=f"`{formatted_received}` {crypto} (${amount_usd:.2f})", inline=True)

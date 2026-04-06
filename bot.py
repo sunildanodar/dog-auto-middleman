@@ -1,4 +1,4 @@
-import discord
+﻿import discord
 import asyncio
 import time
 import datetime
@@ -59,29 +59,21 @@ async def panel(ctx):
         description="• Litecoin, LTC",
         color=0x5865F2,
     )
-    usdt_embed = discord.Embed(
-        title="🪙 • Request USDT [BEP-20] • 🪙",
+    usdt_bep20_embed = discord.Embed(
+        title="💸 • Request USDT [BEP-20] • 💸",
         description="• Network: BSC (BEP-20)",
         color=0x22C55E,
     )
-    intro_embed.title = "Sparkles's Auto Middleman"
-    intro_embed.description = (
-        "• **Paid Service**\n"
-        "• Read our ToS before using the bot: `# 🌺・tos`\n"
-        "• The ToS in `# 🏹・mm-tos` also apply here.\n\n"
-        "**Fees:**\n"
-        "• Deals $250+: $1.50\n"
-        "• Deals under $250: $0.50\n"
-        "• Deals under $50 are **FREE**"
+    usdt_eth_embed = discord.Embed(
+        title="💸 • Request USDT [ETH] • 💸",
+        description="• Network: Ethereum (ERC-20)",
+        color=0x627EEA,  # Ethereum blue
     )
-    ltc_embed.title = "🪙 • Request Litecoin • 🪙"
-    ltc_embed.description = "• Litecoin, LTC"
-    usdt_embed.title = "💸 • Request USDT [BEP-20] • 💸"
-    usdt_embed.description = "• Network: BSC (BEP-20)"
     intro_embed.set_footer(text="Sparkles Trade")
     await ctx.send(embed=intro_embed, view=TutorialView())
     await ctx.send(embed=ltc_embed, view=RequestLTCView())
-    await ctx.send(embed=usdt_embed, view=RequestUSDTBEP20View())
+    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
+    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)

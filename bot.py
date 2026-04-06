@@ -16,7 +16,7 @@ from crypto import generate_ltc_wallet, generate_bep20_wallet, detect_ltc_paymen
 from database import init, save_ticket, update_ticket, get_ticket, get_ticket_by_channel, get_next_ticket_id, get_tickets_by_status, log_event, get_ticket_events, verify_ticket_audit_chain, create_db_backup, database_safety_snapshot, create_encrypted_backup_export
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
-print("[STARTUP] Sparkles Auto Middleman bot process started (unique diagnostic print)")
+print("[STARTUP] Dog Auto Middleman bot process started (unique diagnostic print)")
 init()
 active_monitors = set()
 slash_synced = False
@@ -27,8 +27,8 @@ PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
 WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
 WITHDRAW_RETRY_BASE_SECONDS = 180
 WITHDRAW_RETRY_MAX_ATTEMPTS = 5
-SPARKLES_TITLE = "Sparkles Auto Middleman"
-SPARKLES_FOOTER = "Sparkles Auto Middleman"
+SPARKLES_TITLE = "Dog Auto Middleman"
+SPARKLES_FOOTER = "Dog Auto Middleman"
 SENSITIVE_COMMAND_COOLDOWN_SECONDS = 8
 MIN_DEAL_USD = 0.1
 MAX_DEAL_USD = 50000.0
@@ -39,7 +39,7 @@ payment_view_registered = False
 backup_task_started = False
 security_alert_last_sent = {}
 
-@bot.command(name='panel', aliases=['sparkles_panel'], help='Show the Sparkles Auto Middleman panel')
+@bot.command(name='panel', aliases=['dog_panel'], help='Show the Dog Auto Middleman panel')
 async def panel(ctx):
     intro_embed = discord.Embed(
         title="Dog Auto Middleman",
@@ -417,7 +417,7 @@ def build_payment_embed(ticket, wallet_address):
 
 def build_ticket_startup_embed(bot_user):
     embed = discord.Embed(
-        title="👋 • Sparkles's Auto Middleman Service",
+        title="👋 • Dog Auto Middleman Service",
         description=(
             "Make sure to follow the steps and read the instructions thoroughly.\n"
             "Please explicitly state the trade details if the information below is inaccurate.\n"
@@ -425,7 +425,7 @@ def build_ticket_startup_embed(bot_user):
         ),
         color=0x16181D,
     )
-    embed.title = "👋 • Sparkles's Auto Middleman Service"
+    embed.title = "👋 • Dog Auto Middleman Service"
     embed.description = (
         "Make sure to follow the steps and read the instructions thoroughly.\n"
         "Please explicitly state the trade details if the information below is inaccurate.\n"
@@ -1421,15 +1421,15 @@ class RequestUSDTETHView(ui.View):
         await interaction.response.send_modal(RequestModal("USDT_ETH"))
 
 
-class SparklesPanelView(ui.View):
+class DogPanelView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="LTC", style=discord.ButtonStyle.primary, custom_id="sparkles_panel_request_ltc", row=0)
+    @ui.button(label="LTC", style=discord.ButtonStyle.primary, custom_id="dog_panel_request_ltc", row=0)
     async def ltc(self, interaction, button):
         await interaction.response.send_modal(RequestModal("LTC"))
 
-    @ui.button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="sparkles_panel_request_usdt_bep20", row=0)
+    @ui.button(label="USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="dog_panel_request_usdt_bep20", row=0)
     async def usdt_bep20(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_BEP20"))
 
@@ -2248,7 +2248,7 @@ async def on_ready():
             bot.add_view(RequestLTCView())
             bot.add_view(RequestUSDTBEP20View())
             bot.add_view(RequestUSDTETHView())
-            bot.add_view(SparklesPanelView())
+            bot.add_view(DogPanelView())
             payment_view_registered = True
         except Exception as exc:
             print(f"Persistent view registration failed: {exc}")

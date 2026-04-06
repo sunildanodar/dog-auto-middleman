@@ -1685,7 +1685,7 @@ class RequestLTCView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="🪙 Request LTC", style=discord.ButtonStyle.primary, custom_id="panel_request_ltc")
+    @ui.button(label="Request LTC", style=discord.ButtonStyle.primary, custom_id="panel_request_ltc")
     async def ltc(self, interaction, button):
         await interaction.response.send_modal(RequestModal("LTC"))
 
@@ -1694,7 +1694,7 @@ class RequestUSDTBEP20View(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="🦎 Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="panel_request_usdt_bep20")
+    @ui.button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="panel_request_usdt_bep20")
     async def usdt_bep20(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_BEP20"))
 
@@ -1703,7 +1703,7 @@ class RequestUSDTETHView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="🦎 Request USDT [ETH]", style=discord.ButtonStyle.secondary, custom_id="panel_request_usdt_eth")
+    @ui.button(label="Request USDT [ETH]", style=discord.ButtonStyle.secondary, custom_id="panel_request_usdt_eth")
     async def usdt_eth(self, interaction, button):
         await interaction.response.send_modal(RequestModal("USDT_ETH"))
 

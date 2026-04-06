@@ -42,7 +42,7 @@ security_alert_last_sent = {}
 @bot.command(name='panel', aliases=['sparkles_panel'], help='Show the Sparkles Auto Middleman panel')
 async def panel(ctx):
     intro_embed = discord.Embed(
-        title="Sparkles's Auto Middleman",
+        title="Dog Auto Middleman",
         description=(
             "• **Paid Service**\n"
             "• Read our ToS before using the bot: `# 🌺・tos`\n"
@@ -69,7 +69,7 @@ async def panel(ctx):
         description="• Network: Ethereum (ERC-20)",
         color=0x627EEA,  # Ethereum blue
     )
-    intro_embed.set_footer(text="Sparkles Trade")
+    intro_embed.set_footer(text="Dog Trade")
     await ctx.send(embed=intro_embed, view=TutorialView())
     await ctx.send(embed=ltc_embed, view=RequestLTCView())
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())

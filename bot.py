@@ -259,7 +259,8 @@ async def enforce_sensitive_cooldown(ctx, command_name):
     last_used = sensitive_command_last_used.get(key, 0)
     remaining = int(SENSITIVE_COMMAND_COOLDOWN_SECONDS - (now - last_used))
     if remaining > 0:
-        await ctx.send(f"Slow down. Retry `{command_name}` in {remaining}s.")
+        embed = discord.Embed(description=f"Slow down. Retry `{command_name}` in {remaining}s.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return False
     sensitive_command_last_used[key] = now
     return True
@@ -587,7 +588,8 @@ class PaymentDetailsView(ui.View):
         if ticket_id is None or wallet_address is None or amount_crypto is None or crypto is None or amount_usd is None:
             ticket = get_ticket_by_channel(interaction.channel.id)
             if not ticket or not ticket[7]:
-                await interaction.response.send_message("Could not load payment details for this ticket.", ephemeral=True)
+                embed = discord.Embed(description="Could not load payment details for this ticket.", color=0xE67E22)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
             ticket_id = ticket[0]
             wallet_address = ticket[7]
@@ -635,10 +637,12 @@ class RequestModal(ui.Modal, title="Fill out the format"):
                     interaction.guild.members,
                 )
             if not user:
-                await interaction.response.send_message("User not found.", ephemeral=True)
+                embed = discord.Embed(description="User not found.", color=0xE67E22)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
         except Exception:
-            await interaction.response.send_message("Invalid user ID or username.", ephemeral=True)
+            embed = discord.Embed(description="Invalid user ID or username.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         # Acknowledge quickly so Discord does not show "Something went wrong"
@@ -693,14 +697,16 @@ class RequestModal(ui.Modal, title="Fill out the format"):
 
             save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", role_msg.id, f"you_give={you_give} | trader_gives={trader_gives}", deal_id)
             await audit(interaction.guild, ticket_id, "ticket_created", f"buyer={interaction.user.id} seller={user.id} crypto={self.crypto} deal_id={deal_id}")
-            await interaction.followup.send(f"Ticket created: {channel.mention}", ephemeral=True)
+            embed = discord.Embed(description=f"Ticket created: {channel.mention}", color=0x10B981)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as exc:
             if channel is not None:
                 try:
                     await channel.delete(reason="Ticket setup failed during modal submit")
                 except Exception:
                     pass
-            await interaction.followup.send(f"Could not create ticket. {exc}", ephemeral=True)
+            embed = discord.Embed(description=f"Could not create ticket. {exc}", color=0xE74C3C)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
 class DeleteTicketView(ui.View):
     def __init__(self, ticket_id, user1, user2):
@@ -712,10 +718,12 @@ class DeleteTicketView(ui.View):
     @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger)
     async def delete(self, interaction, button):
         if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
-            await interaction.response.send_message("Only ticket participants or the bot admin can delete this ticket.", ephemeral=True)
+            embed = discord.Embed(description="Only ticket participants or the bot admin can delete this ticket.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await audit(interaction.guild, self.ticket_id, "ticket_deleted", f"deleted_by={interaction.user.id}")
-        await interaction.response.send_message("Deleting ticket...", ephemeral=True)
+        embed = discord.Embed(description="Deleting ticket...", color=0x5865F2)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         await interaction.channel.delete(reason=f"Ticket {self.ticket_id} deleted by {interaction.user.id}")
 
 
@@ -729,10 +737,12 @@ class CloseTicketView(ui.View):
     @ui.button(label="🔒 ・ Close Ticket", style=discord.ButtonStyle.danger)
     async def close_ticket(self, interaction, button):
         if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
-            await interaction.response.send_message("Only ticket participants or the bot admin can close this ticket.", ephemeral=True)
+            embed = discord.Embed(description="Only ticket participants or the bot admin can close this ticket.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await audit(interaction.guild, self.ticket_id, "ticket_closed", f"closed_by={interaction.user.id}")
-        await interaction.response.send_message("Closing ticket...", ephemeral=True)
+        embed = discord.Embed(description="Closing ticket...", color=0x5865F2)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         await interaction.channel.delete(reason=f"Ticket {self.ticket_id} closed by {interaction.user.id}")
 
 
@@ -767,10 +777,12 @@ class RoleSelectView(ui.View):
 
     async def assign_role(self, interaction, role_name, label):
         if self.roles_finalized:
-            await interaction.response.send_message("Roles are already locked in for this ticket.", ephemeral=True)
+            embed = discord.Embed(description="Roles are already locked in for this ticket.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         if interaction.user.id not in [self.user1, self.user2]:
-            await interaction.response.send_message("Only ticket participants can choose a role.", ephemeral=True)
+            embed = discord.Embed(description="Only ticket participants can choose a role.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         previous_role = self.roles.get(interaction.user.id)
@@ -801,7 +813,8 @@ class RoleSelectView(ui.View):
     @ui.button(label="Reset", style=discord.ButtonStyle.danger)
     async def reset_roles(self, interaction, button):
         if interaction.user.id not in [self.user1, self.user2]:
-            await interaction.response.send_message("Only ticket participants can reset roles.", ephemeral=True)
+            embed = discord.Embed(description="Only ticket participants can reset roles.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         self.roles = {self.user1: "buyer", self.user2: "seller"}
@@ -824,14 +837,17 @@ class InfoConfirmView(ui.View):
     @ui.button(label="Correct", style=discord.ButtonStyle.success)
     async def correct(self, interaction, button):
         if interaction.user.id not in [self.sender_id, self.receiver_id]:
-            await interaction.response.send_message("Only ticket participants can confirm this.", ephemeral=True)
+            embed = discord.Embed(description="Only ticket participants can confirm this.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         if interaction.user.id in self.confirms:
-            await interaction.response.send_message("You already confirmed this.", ephemeral=True)
+            embed = discord.Embed(description="You already confirmed this.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         self.confirms.add(interaction.user.id)
-        await interaction.response.send_message(f"✅ <@{interaction.user.id}> clicked Correct.", ephemeral=False)
+        embed = discord.Embed(description=f"✅ <@{interaction.user.id}> clicked Correct.", color=0x10B981)
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
         if len(self.confirms) == 2:
             for child in self.children:
@@ -847,9 +863,11 @@ class InfoConfirmView(ui.View):
     @ui.button(label="Incorrect", style=discord.ButtonStyle.danger)
     async def incorrect(self, interaction, button):
         if interaction.user.id not in [self.sender_id, self.receiver_id]:
-            await interaction.response.send_message("Only ticket participants can reset this.", ephemeral=True)
+            embed = discord.Embed(description="Only ticket participants can reset this.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
-        await interaction.response.send_message("Please use the role selection above to choose the correct roles again.", ephemeral=False)
+        embed = discord.Embed(description="Please use the role selection above to choose the correct roles again.", color=0x5865F2)
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
 
 class AmountModal(ui.Modal, title="Set USD Amount"):
@@ -863,18 +881,18 @@ class AmountModal(ui.Modal, title="Set USD Amount"):
 
     async def on_submit(self, interaction):
         if interaction.user.id != self.buyer_id:
-            await interaction.response.send_message("Only buyer can enter details.", ephemeral=True)
+            embed = discord.Embed(description="Only buyer can enter details.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         try:
             amt = float(self.amount.value)
         except:
-            await interaction.response.send_message("Invalid amount.", ephemeral=True)
+            embed = discord.Embed(description="Invalid amount.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         if not is_valid_deal_amount(amt):
-            await interaction.response.send_message(
-                f"Amount must be between ${MIN_DEAL_USD:.2f} and ${MAX_DEAL_USD:.2f}.",
-                ephemeral=True,
-            )
+            embed = discord.Embed(description=f"Amount must be between ${MIN_DEAL_USD:.2f} and ${MAX_DEAL_USD:.2f}.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         desc = "No description provided"
         update_ticket(self.ticket_id, amount=amt, description=desc)
@@ -916,11 +934,13 @@ class ConfirmAmountView(ui.View):
         if interaction.user.id not in [ticket[2], ticket[3]]:
             return
         if interaction.user.id in self.confirms:
-            await interaction.response.send_message("You already confirmed the USD amount.", ephemeral=True)
+            embed = discord.Embed(description="You already confirmed the USD amount.", color=0xE67E22)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         self.confirms.add(interaction.user.id)
-        await interaction.response.send_message(f"✅ <@{interaction.user.id}> confirmed the USD amount.", ephemeral=False)
+        embed = discord.Embed(description=f"✅ <@{interaction.user.id}> confirmed the USD amount.", color=0x10B981)
+        await interaction.response.send_message(embed=embed, ephemeral=False)
         if len(self.confirms) != 2:
             return
 
@@ -966,7 +986,8 @@ class ConfirmAmountView(ui.View):
         ticket = get_ticket(self.ticket_id)
         if not ticket or interaction.user.id not in [ticket[2], ticket[3]]:
             return
-        await interaction.response.send_message("Amount confirmation was marked incorrect. Please set the amount again.", ephemeral=False)
+        embed = discord.Embed(description="Amount confirmation was marked incorrect. Please set the amount again.", color=0xE67E22)
+        await interaction.response.send_message(embed=embed, ephemeral=False)
         await interaction.channel.send(embed=build_set_amount_prompt_embed(), view=AmountView(self.ticket_id, self.buyer_id, self.crypto))
 
 
@@ -1088,10 +1109,12 @@ class ReleaseRefundView(ui.View):
 
         ticket = get_ticket(self.ticket_id)
         if not ticket:
-            await interaction.followup.send("Ticket not found.", ephemeral=True)
+            embed = discord.Embed(description="Ticket not found.", color=0xE67E22)
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
         if interaction.user.id != ticket[2] and not is_admin_user(interaction.guild, interaction.user):  # buyer or admin starts release flow
-            await interaction.followup.send("Only the buyer or an admin can start release.", ephemeral=True)
+            embed = discord.Embed(description="Only the buyer or an admin can start release.", color=0xE67E22)
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         ticket_status = str(ticket[6] or "").strip().lower()
@@ -1424,7 +1447,8 @@ class ReleaseWarningView(ui.View):
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
-        await interaction.response.send_message("Release cancelled.", ephemeral=True)
+        embed = discord.Embed(description="Release cancelled.", color=0xE67E22)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class SellerAddressEntryView(ui.View):
@@ -1596,7 +1620,8 @@ class ReleaseConfirmView(ui.View):
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
-        await interaction.response.send_message("Withdrawal cancelled.", ephemeral=True)
+        embed = discord.Embed(description="Withdrawal cancelled.", color=0xE67E22)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class RequestLTCView(ui.View):
     def __init__(self):
@@ -1710,7 +1735,8 @@ async def send_commands_overview_pages(send_callable, pages):
 async def commands_overview(ctx):
     lines = build_commands_overview_lines()
     if not lines:
-        await ctx.send("No commands are currently registered.")
+        embed = discord.Embed(description="No commands are currently registered.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
     pages = build_commands_overview_pages(lines)
     await send_commands_overview_pages(lambda embed: ctx.send(embed=embed), pages)
@@ -1720,10 +1746,11 @@ async def commands_overview(ctx):
 async def commands_overview_slash(interaction: discord.Interaction):
     lines = build_commands_overview_lines()
     if not lines:
+        embed = discord.Embed(description="No commands are currently registered.", color=0xE67E22)
         if interaction.response.is_done():
-            await interaction.followup.send("No commands are currently registered.", ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         else:
-            await interaction.response.send_message("No commands are currently registered.", ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     pages = build_commands_overview_pages(lines)
@@ -1774,26 +1801,30 @@ async def transaction(ctx):
         return
     if not ctx.guild or not ctx.author.guild_permissions.administrator:
         if ctx.interaction:
-            await ctx.interaction.response.send_message("Only server admins can use this command.", ephemeral=True)
+            embed = discord.Embed(description="Only server admins can use this command.", color=0xE67E22)
+            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
         else:
-            await ctx.send("Only server admins can use this command.")
+            embed = discord.Embed(description="Only server admins can use this command.", color=0xE67E22)
+            await ctx.send(embed=embed)
         return
 
     ticket = get_ticket_by_channel(ctx.channel.id)
     if not ticket:
+        embed = discord.Embed(description="Use this command inside a ticket channel.", color=0xE67E22)
         if ctx.interaction:
-            await ctx.interaction.response.send_message("Use this command inside a ticket channel.", ephemeral=True)
+            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
         else:
-            await ctx.send("Use this command inside a ticket channel.")
+            await ctx.send(embed=embed)
         return
 
     try:
         msg = await ctx.channel.fetch_message(ticket[10])  # message_id is index 10
     except:
+        embed = discord.Embed(description="Ticket payment message not found.", color=0xE67E22)
         if ctx.interaction:
-            await ctx.interaction.response.send_message("Ticket payment message not found.", ephemeral=True)
+            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
         else:
-            await ctx.send("Ticket payment message not found.")
+            await ctx.send(embed=embed)
         return
 
     if not ticket[7] or not ticket[8]:  # wallet_address and encrypted_private
@@ -1802,10 +1833,11 @@ async def transaction(ctx):
 
     pending_task = fake_confirmation_tasks.get(ticket[0])
     if pending_task and not pending_task.done():
+        embed = discord.Embed(description="Transaction already pending confirmation for this ticket.", color=0xE67E22)
         if ctx.interaction:
-            await ctx.interaction.response.send_message("Transaction already pending confirmation for this ticket.", ephemeral=True)
+            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
         else:
-            await ctx.send("Transaction already pending confirmation for this ticket.")
+            await ctx.send(embed=embed)
         return
 
     wait_seconds = random.randint(60, 120)
@@ -1826,36 +1858,38 @@ async def transaction(ctx):
         finalize_fake_confirmation(ctx.guild, ticket[0], status_msg, ticket[4], wait_seconds)
     )
 
+    embed = discord.Embed(description="Transaction queued. Showing unconfirmed now.", color=0x3498DB)
     if ctx.interaction:
-        await ctx.interaction.response.send_message(
-            "Transaction queued. Showing unconfirmed now.",
-            ephemeral=True,
-        )
+        await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
     else:
-        await ctx.send("Transaction queued. Showing unconfirmed now.")
+        await ctx.send(embed=embed)
 
 @bot.command()
 async def fake_tx(ctx, channel_id: int):
     if not await enforce_sensitive_cooldown(ctx, "fake_tx"):
         return
     if not ctx.guild or not ctx.author.guild_permissions.administrator:
-        await ctx.send("Only server admins can use this command.")
+        embed = discord.Embed(description="Only server admins can use this command.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
 
     channel = ctx.guild.get_channel(channel_id)
     if not channel:
-        await ctx.send("Channel not found.")
+        embed = discord.Embed(description="Channel not found.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
 
     ticket = get_ticket_by_channel(channel_id)
     if not ticket:
-        await ctx.send("Ticket not found.")
+        embed = discord.Embed(description="Ticket not found.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
 
     try:
         msg = await channel.fetch_message(ticket[10])  # message_id is index 10
     except:
-        await ctx.send("Ticket payment message not found.")
+        embed = discord.Embed(description="Ticket payment message not found.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
 
     if not ticket[7] or not ticket[8]:
@@ -1864,7 +1898,8 @@ async def fake_tx(ctx, channel_id: int):
 
     pending_task = fake_confirmation_tasks.get(ticket[0])
     if pending_task and not pending_task.done():
-        await ctx.send(f"Ticket {ticket[0]} already has a pending unconfirmed confirmation.")
+        embed = discord.Embed(description=f"Ticket {ticket[0]} already has a pending unconfirmed confirmation.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
 
     wait_seconds = random.randint(10, 15)
@@ -1884,7 +1919,8 @@ async def fake_tx(ctx, channel_id: int):
     fake_confirmation_tasks[ticket[0]] = bot.loop.create_task(
         finalize_fake_confirmation(ctx.guild, ticket[0], status_msg, ticket[4], wait_seconds)
     )
-    await ctx.send(f"Ticket {ticket[0]} marked unconfirmed.")
+    embed = discord.Embed(description=f"Ticket {ticket[0]} marked unconfirmed.", color=0x3498DB)
+    await ctx.send(embed=embed)
 
 
 @bot.command(aliases=["repair"])
@@ -2371,9 +2407,11 @@ async def backup_now(ctx):
 
     try:
         path = create_db_backup()
-        await ctx.send(f"Database backup created: `{path}`")
+        embed = discord.Embed(description=f"Database backup created: `{path}`", color=0x10B981)
+        await ctx.send(embed=embed)
     except Exception as exc:
-        await ctx.send(f"Database backup failed: `{str(exc)[:900]}`")
+        embed = discord.Embed(description=f"Database backup failed: `{str(exc)[:900]}`", color=0xE74C3C)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name="backup_export", aliases=["securebackup", "backupenc"])
@@ -2397,7 +2435,8 @@ async def backup_export(ctx):
         embed.set_footer(text=SPARKLES_FOOTER)
         await ctx.send(embed=embed)
     except Exception as exc:
-        await ctx.send(f"Encrypted backup export failed: `{str(exc)[:900]}`")
+        embed = discord.Embed(description=f"Encrypted backup export failed: `{str(exc)[:900]}`", color=0xE74C3C)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name="security_status", aliases=["secstatus", "dbstatus"])
@@ -2430,7 +2469,8 @@ async def security_status(ctx):
         embed.set_footer(text=SPARKLES_FOOTER)
         await ctx.send(embed=embed)
     except Exception as exc:
-        await ctx.send(f"Security status check failed: `{str(exc)[:900]}`")
+        embed = discord.Embed(description=f"Security status check failed: `{str(exc)[:900]}`", color=0xE74C3C)
+        await ctx.send(embed=embed)
 
 @bot.event
 async def on_ready():
@@ -2474,11 +2514,14 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("Missing argument. Check command usage and try again.")
+        embed = discord.Embed(description="Missing argument. Check command usage and try again.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
     if isinstance(error, commands.BadArgument):
-        await ctx.send("Invalid argument type. Check command usage and try again.")
+        embed = discord.Embed(description="Invalid argument type. Check command usage and try again.", color=0xE67E22)
+        await ctx.send(embed=embed)
         return
-    await ctx.send("An unexpected error occurred while running that command.")
+    embed = discord.Embed(description="An unexpected error occurred while running that command.", color=0xE74C3C)
+    await ctx.send(embed=embed)
 
 bot.run(TOKEN)

@@ -101,46 +101,50 @@ security_alert_last_sent = {}
 async def panel(ctx):
     # 1. Main info embed (max fidelity, leave ToS channel ID and Tutorial button as placeholders)
     main_embed = discord.Embed(
-        title="Dog's Auto Middleman",
+        title="\n\n***DOG'S AUTO MIDDLEMAN***\n\n",
         description=(
-            "**Paid Service**\n"
-            "• Read our ToS before using the bot.\n"
-            "• The ToS in mm-tos also apply here."
+            "\n\n***PAID SERVICE***\n\n"
+            "• READ OUR TOS BEFORE USING THE BOT.\n\n"
+            "• THE TOS IN MM-TOS ALSO APPLY HERE.\n\n\n"
         ),
         color=0x23272A
     )
-    # Horizontal line (Discord's best approximation)
+    # Add multiple blank fields for maximum spacing
+    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(
-        name="**Fees:**",
+        name="\n\n***FEES:***\n\n",
         value=(
-            "• Deals $250+: $1.50\n"
-            "• Deals under $250: $0.50\n"
-            "[Deals under $50 are FREE](https://your-link-here)"
+            "\n• DEALS $250+: $1.50\n\n"
+            "• DEALS UNDER $250: $0.50\n\n"
+            "[DEALS UNDER $50 ARE FREE](https://your-link-here)\n\n\n"
         ),
         inline=False
     )
+    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
+    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     await ctx.send(embed=main_embed, view=TutorialView())
 
     # 2. Litecoin card
     ltc_embed = discord.Embed(
-        title="• Request Litecoin •",
+        title="\n\n***• REQUEST LITECOIN •***\n\n",
+        description="\n\n• LITECOIN, LTC\n\n\n",
         color=0x23272A,
     )
     await ctx.send(embed=ltc_embed, view=RequestLTCView())
 
     # 3. USDT BEP-20 card
     usdt_bep20_embed = discord.Embed(
-        title="• Request USDT [BEP-20] •",
-        description="Network: BSC (BEP-20)",
+        title="\n\n***• REQUEST USDT [BEP-20] •***\n\n",
+        description="\n\n• NETWORK: BSC (BEP-20)\n\n\n",
         color=0x16A34A,
     )
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
 
     # 4. USDT ERC-20 card
     usdt_erc20_embed = discord.Embed(
-        title="• Request USDT [ERC-20] •",
-        description="Network: Ethereum (ERC-20)",
+        title="\n\n***• REQUEST USDT [ERC-20] •***\n\n",
+        description="\n\n• NETWORK: ETHEREUM (ERC-20)\n\n\n",
         color=0x23272A,
     )
     await ctx.send(embed=usdt_erc20_embed, view=RequestUSDTETHView())

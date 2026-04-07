@@ -1198,9 +1198,13 @@ class ReleaseRefundView(ui.View):
                     if ticket[4] == "LTC":
                         required_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
                         current_paid, current_conf, current_txid, current_received = detect_ltc_payment(
-                            ticket[7],
-                            self.ticket_id = ticket_id
-                            self.crypto = crypto
+                            ticket[7]
+                        )
+
+                        self.ticket_id = ticket_id
+                        self.crypto = crypto
+
+                        # ...existing code...
 
                         @ui.button(label="(1) Confirm", style=discord.ButtonStyle.success)
                         async def confirm(self, interaction, button):

@@ -101,30 +101,23 @@ security_alert_last_sent = {}
 async def panel(ctx):
     # 1. Main info embed (max fidelity, leave ToS channel ID and Tutorial button as placeholders)
     main_embed = discord.Embed(
-        title="\n\n\n***DOG'S AUTO MIDDLEMAN***\n\n\n",
+        title="***DOG'S AUTO MIDDLEMAN***",
         description=(
-            "\n\n\n**Paid Service**\n\n"
-            "• Read our ToS before using the bot: <#TOS_CHANNEL_ID>\n"
-            "• The ToS in <#MM_TOS_CHANNEL_ID> also apply here.\n\n\n"
+            "***PAID SERVICE***\n"
+            "**• READ OUR TOS BEFORE USING THE BOT: <#1489999569163911299>**\n"
+            "**• THE TOS IN <#1489999492131586109> ALSO APPLY HERE.**\n"
         ),
         color=0x23272A
     )
-    # Add even more blank fields for maximum spacing
-    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
-    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
-    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(
-        name="<#FEES_CHANNEL_ID>\n\n**Fees:**\n",
+        name="***FEES:***",
         value=(
-            "• Deals $250+: $1.50\n"
-            "• Deals under $250: $0.50\n"
-            "Deals under $50 are FREE\n"
+            "**• DEALS $250+: $1.50**\n"
+            "**• DEALS UNDER $250: $0.50**\n"
+            "**DEALS UNDER $50 ARE FREE**"
         ),
         inline=False
     )
-    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
-    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
-    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     await ctx.send(embed=main_embed, view=TutorialView())
 
     # 2. Litecoin card

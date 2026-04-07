@@ -23,22 +23,22 @@ async def start(ctx):
     )
     embed.add_field(
         name="Fees:",
-        value="\u2022 Deals $250+: $1.50\n\u2022 Deals under $250: $0.50\n[Deals under $50 are FREE](https://your-link-here)",
+        value="- Deals $250+: $1.50\n- Deals under $250: $0.50\n[Deals under $50 are FREE](https://your-link-here)",
         inline=False
     )
     embed.add_field(
-        name="\u200b",
-        value="**Request Litecoin**\n",
+        name="Request Litecoin",
+        value="Click the button below to request Litecoin.",
         inline=False
     )
     embed.add_field(
-        name="\u200b",
-        value="**Request USDT [BEP-20]**\nNetwork: BSC (BEP-20)",
+        name="Request USDT [BEP-20]",
+        value="Network: BSC (BEP-20)\nClick the button below to request USDT (BEP-20).",
         inline=False
     )
     embed.add_field(
-        name="\u200b",
-        value="**Request USDT [ERC-20]**\nNetwork: Ethereum (ERC-20)",
+        name="Request USDT [ERC-20]",
+        value="Network: Ethereum (ERC-20)\nClick the button below to request USDT (ERC-20).",
         inline=False
     )
     embed.set_footer(text="Tutorial")
@@ -99,55 +99,51 @@ security_alert_last_sent = {}
 
 @bot.command(name='panel', aliases=['dog_panel'], help='Show the Dog Auto Middleman panel')
 async def panel(ctx):
-    # Main info embed with fields and markdown for ToS and Fees
+    # 1. Main info embed (max fidelity, leave ToS channel ID and Tutorial button as placeholders)
     main_embed = discord.Embed(
-        title="Sparkles's Auto Middleman",
+        title="Dog's Auto Middleman",
+        description=(
+            "**Paid Service**\n"
+            "• Read our ToS before using the bot.\n"
+            "• The ToS in mm-tos also apply here."
+        ),
         color=0x23272A
     )
+    # Horizontal line (Discord's best approximation)
+    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(
-        name="Paid Service",
+        name="**Fees:**",
         value=(
-            "**Read our ToS before using the bot:** #tos\n"
-            "The ToS in #mm-tos also apply here."
-        ),
-        inline=False
-    )
-    main_embed.add_field(
-        name="Fees:",
-        value=(
-            "- Deals $250+: $1.50\n"
-            "- Deals under $250: $0.50\n"
+            "• Deals $250+: $1.50\n"
+            "• Deals under $250: $0.50\n"
             "[Deals under $50 are FREE](https://your-link-here)"
         ),
         inline=False
     )
-    main_embed.set_footer(text="Tutorial")
+    await ctx.send(embed=main_embed, view=TutorialView())
 
-    # Litecoin card
+    # 2. Litecoin card
     ltc_embed = discord.Embed(
-        title="**Request Litecoin**",
-        description="• Litecoin, LTC",
+        title="• Request Litecoin •",
         color=0x23272A,
     )
-    # USDT BEP-20 card
+    await ctx.send(embed=ltc_embed, view=RequestLTCView())
+
+    # 3. USDT BEP-20 card
     usdt_bep20_embed = discord.Embed(
-        title="**Request USDT [BEP-20]**",
-        description="• Network: BSC (BEP-20)",
+        title="• Request USDT [BEP-20] •",
+        description="Network: BSC (BEP-20)",
         color=0x16A34A,
     )
-    # USDT ETH card
-    usdt_eth_embed = discord.Embed(
-        title="**Request USDT [ETH]**",
-        description="• Network: Ethereum (ERC-20)",
+    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
+
+    # 4. USDT ERC-20 card
+    usdt_erc20_embed = discord.Embed(
+        title="• Request USDT [ERC-20] •",
+        description="Network: Ethereum (ERC-20)",
         color=0x23272A,
     )
-
-    # Send main embed with Tutorial button
-    await ctx.send(embed=main_embed, view=TutorialView())
-    # Send each card with its button
-    await ctx.send(embed=ltc_embed, view=RequestLTCView())
-    await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
-    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
+    await ctx.send(embed=usdt_erc20_embed, view=RequestUSDTETHView())
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)

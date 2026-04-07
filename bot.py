@@ -103,9 +103,9 @@ async def panel(ctx):
     main_embed = discord.Embed(
         title="\n\n\n***DOG'S AUTO MIDDLEMAN***\n\n\n",
         description=(
-            "\n\n\n***PAID SERVICE***\n\n\n"
-            "• READ OUR TOS BEFORE USING THE BOT.\n\n\n"
-            "• THE TOS IN MM-TOS ALSO APPLY HERE.\n\n\n\n"
+            "\n\n\n**Paid Service**\n\n"
+            "• Read our ToS before using the bot: <#TOS_CHANNEL_ID>\n"
+            "• The ToS in <#MM_TOS_CHANNEL_ID> also apply here.\n\n\n"
         ),
         color=0x23272A
     )
@@ -114,11 +114,11 @@ async def panel(ctx):
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(
-        name="\n\n***FEES:***\n\n\n",
+        name="<#FEES_CHANNEL_ID>\n\n**Fees:**\n",
         value=(
-            "\n• DEALS $250+: $1.50\n\n\n"
-            "• DEALS UNDER $250: $0.50\n\n\n"
-            "DEALS UNDER $50 ARE FREE\n\n\n\n"
+            "• Deals $250+: $1.50\n"
+            "• Deals under $250: $0.50\n"
+            "Deals under $50 are FREE\n"
         ),
         inline=False
     )
@@ -130,7 +130,7 @@ async def panel(ctx):
     # 2. Litecoin card
     ltc_embed = discord.Embed(
         title="\n\n***• REQUEST LITECOIN •***\n\n",
-        description="\n\n• LITECOIN, LTC\n\n\n",
+        description="\n\n• LITECOIN, LTC\n\n# REQUEST LITECOIN\n\n\n",
         color=0x23272A,
     )
     await ctx.send(embed=ltc_embed, view=RequestLTCView())
@@ -138,7 +138,7 @@ async def panel(ctx):
     # 3. USDT BEP-20 card
     usdt_bep20_embed = discord.Embed(
         title="\n\n***• REQUEST USDT [BEP-20] •***\n\n",
-        description="\n\n• NETWORK: BSC (BEP-20)\n\n\n",
+        description="\n\n• NETWORK: BSC (BEP-20)\n\n# REQUEST USDT BEP-20\n\n\n",
         color=0x16A34A,
     )
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
@@ -146,7 +146,7 @@ async def panel(ctx):
     # 4. USDT ERC-20 card
     usdt_erc20_embed = discord.Embed(
         title="\n\n***• REQUEST USDT [ERC-20] •***\n\n",
-        description="\n\n• NETWORK: ETHEREUM (ERC-20)\n\n\n",
+        description="\n\n• NETWORK: ETHEREUM (ERC-20)\n\n# REQUEST USDT ERC-20\n\n\n",
         color=0x23272A,
     )
     await ctx.send(embed=usdt_erc20_embed, view=RequestUSDTETHView())

@@ -1393,7 +1393,8 @@ class ReleaseRefundView(ui.View):
                                 return
 
 
-                    else:
+                    # USDT payment detection (if not LTC)
+                    if ticket[4] != "LTC":
                         current_paid, current_conf, current_txid, current_received = detect_usdt_payment(
                             ticket[7],
                             ticket[5],

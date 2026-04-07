@@ -101,26 +101,28 @@ security_alert_last_sent = {}
 async def panel(ctx):
     # 1. Main info embed (max fidelity, leave ToS channel ID and Tutorial button as placeholders)
     main_embed = discord.Embed(
-        title="\n\n***DOG'S AUTO MIDDLEMAN***\n\n",
+        title="\n\n\n***DOG'S AUTO MIDDLEMAN***\n\n\n",
         description=(
-            "\n\n***PAID SERVICE***\n\n"
-            "• READ OUR TOS BEFORE USING THE BOT.\n\n"
-            "• THE TOS IN MM-TOS ALSO APPLY HERE.\n\n\n"
+            "\n\n\n***PAID SERVICE***\n\n\n"
+            "• READ OUR TOS BEFORE USING THE BOT.\n\n\n"
+            "• THE TOS IN MM-TOS ALSO APPLY HERE.\n\n\n\n"
         ),
         color=0x23272A
     )
-    # Add multiple blank fields for maximum spacing
+    # Add even more blank fields for maximum spacing
+    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(
-        name="\n\n***FEES:***\n\n",
+        name="\n\n***FEES:***\n\n\n",
         value=(
-            "\n• DEALS $250+: $1.50\n\n"
-            "• DEALS UNDER $250: $0.50\n\n"
-            "[DEALS UNDER $50 ARE FREE](https://your-link-here)\n\n\n"
+            "\n• DEALS $250+: $1.50\n\n\n"
+            "• DEALS UNDER $250: $0.50\n\n\n"
+            "DEALS UNDER $50 ARE FREE\n\n\n\n"
         ),
         inline=False
     )
+    main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     main_embed.add_field(name="\u200b", value="\u200b", inline=False)
     await ctx.send(embed=main_embed, view=TutorialView())

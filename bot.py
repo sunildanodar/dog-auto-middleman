@@ -973,18 +973,28 @@ class ConfirmAmountView(ui.View):
 async def monitor_payment(ticket_id, address, amount, crypto, msg):
     active_monitors.add(ticket_id)
     last_unconfirmed_conf = None
+    last_check_error = None
     try:
         while True:
             ticket = get_ticket(ticket_id)
             locked_amount = get_locked_amount_crypto(ticket)
-            if crypto == "LTC":
-                required_ltc = locked_amount or usd_to_ltc(amount)
-                if locked_amount is None:
-                    update_ticket(ticket_id, locked_amount_crypto=required_ltc)
-                paid, conf, txid, received_ltc = detect_ltc_payment(address, amount, required_ltc=required_ltc)
-            else:
-                paid, conf, txid, received_ltc = detect_usdt_payment(address, amount, network=usdt_network_from_asset(crypto))
-                required_ltc = amount
+            try:
+                if crypto == "LTC":
+                    required_ltc = locked_amount or usd_to_ltc(amount)
+                    if locked_amount is None:
+                        update_ticket(ticket_id, locked_amount_crypto=required_ltc)
+                    paid, conf, txid, received_ltc = detect_ltc_payment(address, amount, required_ltc=required_ltc)
+                else:
+                    paid, conf, txid, received_ltc = detect_usdt_payment(address, amount, network=usdt_network_from_asset(crypto))
+                    required_ltc = amount
+                last_check_error = None
+            except Exception as exc:
+                error_text = str(exc)[:200]
+                if error_text != last_check_error:
+                    await audit(msg.guild, ticket_id, "payment_check_error", error_text)
+                    last_check_error = error_text
+                await asyncio.sleep(PAYMENT_POLL_INTERVAL_SECONDS)
+                continue
 
             if paid:
                 if conf < CONFIRMATIONS_REQUIRED:

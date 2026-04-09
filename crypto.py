@@ -83,6 +83,92 @@ def usd_to_ltc(amount_usd):
 def detect_ltc_payment(address, amount_usd, required_ltc=None):
     amount_ltc = required_ltc if required_ltc is not None else usd_to_ltc(amount_usd)
     minimum_ltc = max(amount_ltc * 0.99, 0)
+    best_received = 0.0
+    best_confirmations = 0
+    best_txid = None
+
+    def _float_or_zero(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _incoming_ltc_from_ref(ref):
+        try:
+            tx_output_n = int(ref.get("tx_output_n", -1))
+        except (TypeError, ValueError):
+            tx_output_n = -1
+        if tx_output_n < 0:
+            return 0.0
+        return max(_float_or_zero(ref.get("value")) / 1e8, 0.0)
+
+    def _record_best(received, confirmations, txid):
+        nonlocal best_received, best_confirmations, best_txid
+        if received > best_received:
+            best_received = received
+            best_confirmations = max(int(confirmations or 0), 0)
+            best_txid = txid
+
+    # Fast path: address summary includes confirmed + unconfirmed refs and
+    # catches split deposits that arrive across multiple transactions.
+    try:
+        summary_resp = requests.get(
+            f"https://api.blockcypher.com/v1/ltc/main/addrs/{address}",
+            timeout=15,
+        )
+        summary_resp.raise_for_status()
+        summary = summary_resp.json()
+
+        confirmed_refs = summary.get("txrefs", []) or []
+        unconfirmed_refs = summary.get("unconfirmed_txrefs", []) or []
+
+        confirmed_total = 0.0
+        confirmed_confs = []
+        latest_confirmed_txid = None
+        for ref in confirmed_refs:
+            value_ltc = _incoming_ltc_from_ref(ref)
+            if value_ltc <= 0:
+                continue
+            confirmed_total += value_ltc
+            try:
+                confirmations = max(int(ref.get("confirmations") or 0), 0)
+            except (TypeError, ValueError):
+                confirmations = 0
+            confirmed_confs.append(confirmations)
+            txid = ref.get("tx_hash")
+            if txid:
+                latest_confirmed_txid = txid
+
+        unconfirmed_total = 0.0
+        latest_unconfirmed_txid = None
+        for ref in unconfirmed_refs:
+            value_ltc = _incoming_ltc_from_ref(ref)
+            if value_ltc <= 0:
+                continue
+            unconfirmed_total += value_ltc
+            txid = ref.get("tx_hash")
+            if txid:
+                latest_unconfirmed_txid = txid
+
+        confirmed_balance = max(_float_or_zero(summary.get("balance")) / 1e8, 0.0)
+        final_balance = max(_float_or_zero(summary.get("final_balance")) / 1e8, 0.0)
+        total_received_reported = max(_float_or_zero(summary.get("total_received")) / 1e8, 0.0)
+
+        confirmed_total = max(confirmed_total, confirmed_balance)
+        total_received = max(confirmed_total + unconfirmed_total, final_balance, total_received_reported)
+        txid = latest_unconfirmed_txid or latest_confirmed_txid
+
+        if confirmed_total >= minimum_ltc:
+            effective_conf = min(confirmed_confs) if confirmed_confs else 1
+            _record_best(total_received, effective_conf, txid)
+            return True, effective_conf, txid, total_received
+        if total_received >= minimum_ltc:
+            _record_best(total_received, 0, txid)
+            return True, 0, txid, total_received
+
+        _record_best(total_received, 0, txid)
+    except (requests.RequestException, ValueError, TypeError, KeyError):
+        pass
 
     try:
         response = requests.get(
@@ -95,6 +181,9 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
         data = None
 
     if data:
+        cumulative_received = 0.0
+        cumulative_conf = None
+        cumulative_txid = None
         txs = data.get("txs", []) or []
         for tx in txs:
             confirmations = tx.get("confirmations", 0)
@@ -106,8 +195,26 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
                 if address in addresses:
                     received_total += output.get("value", 0) / 1e8
 
-            if received_total >= minimum_ltc:
-                return True, confirmations, txid, received_total
+            if received_total > best_received:
+                best_received = received_total
+                best_confirmations = confirmations
+                best_txid = txid
+
+            if received_total <= 0:
+                continue
+
+            cumulative_received += received_total
+            cumulative_txid = txid or cumulative_txid
+            try:
+                conf_value = max(int(confirmations or 0), 0)
+            except (TypeError, ValueError):
+                conf_value = 0
+            cumulative_conf = conf_value if cumulative_conf is None else min(cumulative_conf, conf_value)
+
+            if cumulative_received >= minimum_ltc:
+                final_conf = cumulative_conf if cumulative_conf is not None else 0
+                _record_best(cumulative_received, final_conf, cumulative_txid)
+                return True, final_conf, cumulative_txid, cumulative_received
 
     try:
         fallback = requests.get(
@@ -133,12 +240,17 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
                 if output.get("address") == address:
                     received_total += float(output.get("value", 0))
 
+            if received_total > best_received:
+                best_received = received_total
+                best_confirmations = confirmations
+                best_txid = txid
+
             if received_total >= minimum_ltc:
                 return True, confirmations, txid, received_total
     except (requests.RequestException, ValueError, KeyError, TypeError):
-        return False, 0, None, 0.0
+        return False, best_confirmations, best_txid, best_received
 
-    return False, 0, None, 0.0
+    return False, best_confirmations, best_txid, best_received
 
 def send_ltc(to_address, amount, priv_key):
     priv = decrypt_key(priv_key)
@@ -294,10 +406,23 @@ def generate_bep20_wallet():
     return {"address": account.address, "private": encrypt_key(account.key.hex())}
 
 def detect_usdt_payment(address, amount, network="BEP20"):
-    w3, contract_address, decimals = _network_client_and_contract(network)
-    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}])
-    balance = contract.functions.balanceOf(Web3.to_checksum_address(address)).call()
-    usdt_balance = balance / (10 ** decimals)
+    try:
+        required_amount = float(amount)
+    except (TypeError, ValueError):
+        required_amount = 0.0
+
+    confirmations = 0
+    txid = None
+    usdt_balance = 0.0
+
+    try:
+        w3, contract_address, decimals = _network_client_and_contract(network)
+        contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}])
+        balance = contract.functions.balanceOf(Web3.to_checksum_address(address)).call()
+        usdt_balance = balance / (10 ** decimals)
+    except Exception:
+        return False, 0, None, 0.0
+
     confirmations = 0
     txid = None
     try:
@@ -321,7 +446,7 @@ def detect_usdt_payment(address, amount, network="BEP20"):
     except Exception:
         txid = None
         confirmations = 0
-    if usdt_balance >= amount:
+    if usdt_balance >= required_amount:
         if confirmations <= 0:
             confirmations = 1
         return True, confirmations, txid, usdt_balance

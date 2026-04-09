@@ -529,6 +529,33 @@ def build_unconfirmed_embed(crypto, amount_usd, required_amount, txid=None, conf
     return embed
 
 
+def build_underpaid_embed(crypto, amount_usd, required_amount, received_amount, txid=None):
+    required_value = float(required_amount or 0)
+    received_value = float(received_amount or 0)
+    remaining = max(required_value - received_value, 0.0)
+
+    embed = discord.Embed(
+        title="⚠️ • Payment Detected But Amount Is Too Low",
+        description=(
+            "A deposit was detected, but it is still below the required amount for this trade.\n"
+            "Send the remaining amount to continue."
+        ),
+        color=0xF59E0B,
+    )
+    embed.add_field(name="USD Amount", value=f"`$ {amount_usd:.2f}`", inline=True)
+    embed.add_field(name="Asset", value=f"`{crypto}`", inline=True)
+    embed.add_field(name="Received", value=f"`{format_asset_amount(received_value, crypto)}` {crypto}", inline=True)
+    embed.add_field(name="Required", value=f"`{format_asset_amount(required_value, crypto)}` {crypto}", inline=True)
+    embed.add_field(name="Remaining", value=f"`{format_asset_amount(remaining, crypto)}` {crypto}", inline=True)
+    if txid:
+        tx_value = f"`{short_txid(txid)}`"
+        if str(crypto).upper() == "LTC":
+            tx_value = f"{tx_value} ({ltc_tx_link(txid)})"
+        embed.add_field(name="Transaction", value=tx_value, inline=False)
+    embed.set_footer(text="Release appears only after required amount is fully confirmed.")
+    return embed
+
+
 async def panel_recently_posted(channel, lookback_seconds=12):
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=lookback_seconds)
     async for message in channel.history(limit=8):
@@ -973,6 +1000,7 @@ class ConfirmAmountView(ui.View):
 async def monitor_payment(ticket_id, address, amount, crypto, msg):
     active_monitors.add(ticket_id)
     last_unconfirmed_conf = None
+    last_underpaid_received = 0.0
     try:
         while True:
             ticket = get_ticket(ticket_id)
@@ -1047,6 +1075,29 @@ async def monitor_payment(ticket_id, address, amount, crypto, msg):
                             )
                             update_ticket(ticket_id, message_id=fallback_msg.id)
                     return
+            else:
+                required_value = float(required_ltc or 0)
+                received_value = float(received_ltc or 0)
+                minimum_required = required_value * 0.99
+                material_delta = max(required_value * 0.005, 1e-8)
+                if required_value > 0 and received_value > 0 and received_value < minimum_required:
+                    if received_value - last_underpaid_received >= material_delta:
+                        await audit(
+                            msg.guild,
+                            ticket_id,
+                            "payment_underpaid",
+                            f"txid={txid or 'none'} received={received_value:.8f} required={required_value:.8f}",
+                        )
+                        await msg.channel.send(
+                            embed=build_underpaid_embed(
+                                crypto=crypto,
+                                amount_usd=amount,
+                                required_amount=required_value,
+                                received_amount=received_value,
+                                txid=txid,
+                            )
+                        )
+                        last_underpaid_received = received_value
 
             await asyncio.sleep(PAYMENT_POLL_INTERVAL_SECONDS)
     finally:

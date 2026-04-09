@@ -83,6 +83,9 @@ def usd_to_ltc(amount_usd):
 def detect_ltc_payment(address, amount_usd, required_ltc=None):
     amount_ltc = required_ltc if required_ltc is not None else usd_to_ltc(amount_usd)
     minimum_ltc = max(amount_ltc * 0.99, 0)
+    best_received = 0.0
+    best_confirmations = 0
+    best_txid = None
 
     try:
         response = requests.get(
@@ -105,6 +108,11 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
                 addresses = output.get("addresses", []) or []
                 if address in addresses:
                     received_total += output.get("value", 0) / 1e8
+
+            if received_total > best_received:
+                best_received = received_total
+                best_confirmations = confirmations
+                best_txid = txid
 
             if received_total >= minimum_ltc:
                 return True, confirmations, txid, received_total
@@ -133,12 +141,17 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
                 if output.get("address") == address:
                     received_total += float(output.get("value", 0))
 
+            if received_total > best_received:
+                best_received = received_total
+                best_confirmations = confirmations
+                best_txid = txid
+
             if received_total >= minimum_ltc:
                 return True, confirmations, txid, received_total
     except (requests.RequestException, ValueError, KeyError, TypeError):
-        return False, 0, None, 0.0
+        return False, best_confirmations, best_txid, best_received
 
-    return False, 0, None, 0.0
+    return False, best_confirmations, best_txid, best_received
 
 def send_ltc(to_address, amount, priv_key):
     priv = decrypt_key(priv_key)

@@ -2,7 +2,7 @@ import requests
 from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIRMATIONS_REQUIRED, BSC_RPC_URL, USDT_CONTRACT_ADDRESS, ETH_RPC_URL, USDT_ETH_CONTRACT_ADDRESS, ENCRYPTION_KEY, LTC_FEE_BUFFER_SATOSHIS, EVM_GAS_LIMIT_MULTIPLIER_BPS, EVM_GAS_FEE_BUFFER_WEI
 from web3 import Web3
 from cryptography.fernet import Fernet
-import secrets, hashlib, base58, ecdsa, json
+import secrets, hashlib, base58, ecdsa, json, re
 from decimal import Decimal, InvalidOperation
 from ecdsa.util import sigencode_der_canonize
 
@@ -253,6 +253,28 @@ def detect_ltc_payment(address, amount_usd, required_ltc=None):
     return False, best_confirmations, best_txid, best_received
 
 def send_ltc(to_address, amount, priv_key):
+    def _extract_missing_satoshis(provider_payload):
+        if not isinstance(provider_payload, dict):
+            return 0
+        candidates = []
+        if isinstance(provider_payload.get("errors"), list):
+            candidates.extend(provider_payload.get("errors"))
+        candidates.append(provider_payload.get("error"))
+
+        missing = 0
+        for entry in candidates:
+            text = str(entry or "")
+            match = re.search(r"missing\s+(-?\d+)", text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            try:
+                value = abs(int(match.group(1)))
+            except (TypeError, ValueError):
+                continue
+            if value > missing:
+                missing = value
+        return missing
+
     priv = decrypt_key(priv_key)
     requested_satoshis = int(amount * 1e8)
     # Keep a small buffer for network fees so small tickets do not fail on broadcast.
@@ -270,12 +292,33 @@ def send_ltc(to_address, amount, priv_key):
         "change_address": from_address,
     }
 
-    try:
-        new_resp = requests.post(new_url, json=new_data, timeout=20)
-    except requests.RequestException as exc:
-        return {"error": f"Network error while creating tx: {exc}"}
+    def _request_unsigned(value):
+        payload = {
+            "inputs": [{"addresses": [from_address]}],
+            "outputs": [{"addresses": [to_address], "value": int(value)}],
+            "change_address": from_address,
+        }
+        try:
+            resp = requests.post(new_url, json=payload, timeout=20)
+        except requests.RequestException as exc:
+            return None, {"error": f"Network error while creating tx: {exc}"}, int(value)
+        return resp, _safe_json_or_error(resp), int(value)
 
-    new_payload = _safe_json_or_error(new_resp)
+    new_resp, new_payload, used_value_satoshis = _request_unsigned(value_satoshis)
+    if new_resp is None:
+        return new_payload
+
+    missing_sats = _extract_missing_satoshis(new_payload) if new_resp.status_code >= 400 else 0
+    if missing_sats > 0:
+        retry_margin = max(fee_buffer_satoshis, 500)
+        retry_value = used_value_satoshis - missing_sats - retry_margin
+        if retry_value > 0:
+            retry_resp, retry_payload, retry_used = _request_unsigned(retry_value)
+            if retry_resp is None:
+                return retry_payload
+            new_resp, new_payload, used_value_satoshis = retry_resp, retry_payload, retry_used
+
+    value_satoshis = used_value_satoshis
     if new_resp.status_code >= 400:
         if _is_limits_error(new_payload):
             # Fallback path: micro endpoint sometimes works when tx/new is throttled.

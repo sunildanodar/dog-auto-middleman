@@ -1,62 +1,4 @@
 ﻿import discord
-from discord.ext import commands
-from discord.ui import Button, View
-# ...existing code...
-
-# --- 1:1 UI Embed Command ---
-class RequestView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(Button(label="Request LTC", style=discord.ButtonStyle.primary, custom_id="request_ltc"))
-        self.add_item(Button(label="Request USDT [BEP-20]", style=discord.ButtonStyle.success, custom_id="request_usdt_bep20"))
-        self.add_item(Button(label="Request USDT [ERC-20]", style=discord.ButtonStyle.success, custom_id="request_usdt_erc20"))
-
-# Replace 'bot' with your bot instance if named differently
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
-
-@bot.command()
-async def start(ctx):
-    embed = discord.Embed(
-        title="Sparkles's Auto Middleman",
-        description="**Paid Service**\n\nRead our ToS before using the bot: #tos\nThe ToS in #mm-tos also apply here.",
-        color=0x23272A
-    )
-    embed.add_field(
-        name="Fees:",
-        value="- Deals $250+: $1.50\n- Deals under $250: $0.50\n[Deals under $50 are FREE](https://your-link-here)",
-        inline=False
-    )
-    embed.add_field(
-        name="Request Litecoin",
-        value="Click the button below to request Litecoin.",
-        inline=False
-    )
-    embed.add_field(
-        name="Request USDT [BEP-20]",
-        value="Network: BSC (BEP-20)\nClick the button below to request USDT (BEP-20).",
-        inline=False
-    )
-    embed.add_field(
-        name="Request USDT [ERC-20]",
-        value="Network: Ethereum (ERC-20)\nClick the button below to request USDT (ERC-20).",
-        inline=False
-    )
-    embed.set_footer(text="Tutorial")
-    await ctx.send(embed=embed, view=RequestView())
-
-# --- Button Interactions (Optional: Add handlers if you want actions) ---
-@bot.event
-async def on_interaction(interaction: discord.Interaction):
-    if interaction.type == discord.InteractionType.component:
-        if interaction.data["custom_id"] == "request_ltc":
-            await interaction.response.send_message("LTC request initiated!", ephemeral=True)
-        elif interaction.data["custom_id"] == "request_usdt_bep20":
-            await interaction.response.send_message("USDT [BEP-20] request initiated!", ephemeral=True)
-        elif interaction.data["custom_id"] == "request_usdt_erc20":
-            await interaction.response.send_message("USDT [ERC-20] request initiated!", ephemeral=True)
-
-# ...existing code...
-import discord
 import asyncio
 import time
 import datetime
@@ -99,50 +41,39 @@ security_alert_last_sent = {}
 
 @bot.command(name='panel', aliases=['dog_panel'], help='Show the Dog Auto Middleman panel')
 async def panel(ctx):
-    # 1. Main info embed (max fidelity, leave ToS channel ID and Tutorial button as placeholders)
-    main_embed = discord.Embed(
-        title="***DOG'S AUTO MIDDLEMAN***",
+    intro_embed = discord.Embed(
+        title="Dog Auto Middleman",
         description=(
-            "***PAID SERVICE***\n"
-            "**• READ OUR TOS BEFORE USING THE BOT: <#1489999569163911299>**\n"
-            "**• THE TOS IN <#1489999492131586109> ALSO APPLY HERE.**\n"
+            "• **Paid Service**\n"
+            "• Read our ToS before using the bot: `# 🌺・tos`\n"
+            "• The ToS in `# 🏹・mm-tos` also apply here.\n\n"
+            "**Fees:**\n"
+            "• Deals $250+: $1.50\n"
+            "• Deals under $250: $0.50\n"
+            "• Deals under $50 are **FREE**"
         ),
-        color=0x23272A
+        color=0x1F2328,
     )
-    main_embed.add_field(
-        name="***FEES:***",
-        value=(
-            "**• DEALS $250+: $1.50**\n"
-            "**• DEALS UNDER $250: $0.50**\n"
-            "**DEALS UNDER $50 ARE FREE**"
-        ),
-        inline=False
-    )
-    await ctx.send(embed=main_embed, view=TutorialView())
-
-    # 2. Litecoin card
     ltc_embed = discord.Embed(
-        title="\n\n***• REQUEST LITECOIN •***\n\n",
-        description="\n\n• LITECOIN, LTC\n\n# REQUEST LITECOIN\n\n\n",
-        color=0x23272A,
+        title="🪙 • Request Litecoin • 🪙",
+        description="• Litecoin, LTC",
+        color=0x5865F2,
     )
-    await ctx.send(embed=ltc_embed, view=RequestLTCView())
-
-    # 3. USDT BEP-20 card
     usdt_bep20_embed = discord.Embed(
-        title="\n\n***• REQUEST USDT [BEP-20] •***\n\n",
-        description="\n\n• NETWORK: BSC (BEP-20)\n\n# REQUEST USDT BEP-20\n\n\n",
-        color=0x16A34A,
+        title="💸 • Request USDT [BEP-20] • 💸",
+        description="• Network: BSC (BEP-20)",
+        color=0x22C55E,
     )
+    usdt_eth_embed = discord.Embed(
+        title="💸 • Request USDT [ETH] • 💸",
+        description="• Network: Ethereum (ERC-20)",
+        color=0x627EEA,  # Ethereum blue
+    )
+    intro_embed.set_footer(text="Dog Trade")
+    await ctx.send(embed=intro_embed, view=TutorialView())
+    await ctx.send(embed=ltc_embed, view=RequestLTCView())
     await ctx.send(embed=usdt_bep20_embed, view=RequestUSDTBEP20View())
-
-    # 4. USDT ERC-20 card
-    usdt_erc20_embed = discord.Embed(
-        title="\n\n***• REQUEST USDT [ERC-20] •***\n\n",
-        description="\n\n• NETWORK: ETHEREUM (ERC-20)\n\n# REQUEST USDT ERC-20\n\n\n",
-        color=0x23272A,
-    )
-    await ctx.send(embed=usdt_erc20_embed, view=RequestUSDTETHView())
+    await ctx.send(embed=usdt_eth_embed, view=RequestUSDTETHView())
 
 def log(guild, msg):
     ch = guild.get_channel(LOG_CHANNEL_ID)
@@ -328,8 +259,7 @@ async def enforce_sensitive_cooldown(ctx, command_name):
     last_used = sensitive_command_last_used.get(key, 0)
     remaining = int(SENSITIVE_COMMAND_COOLDOWN_SECONDS - (now - last_used))
     if remaining > 0:
-        embed = discord.Embed(description=f"Slow down. Retry `{command_name}` in {remaining}s.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send(f"Slow down. Retry `{command_name}` in {remaining}s.")
         return False
     sensitive_command_last_used[key] = now
     return True
@@ -657,8 +587,7 @@ class PaymentDetailsView(ui.View):
         if ticket_id is None or wallet_address is None or amount_crypto is None or crypto is None or amount_usd is None:
             ticket = get_ticket_by_channel(interaction.channel.id)
             if not ticket or not ticket[7]:
-                embed = discord.Embed(description="Could not load payment details for this ticket.", color=0xE67E22)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.response.send_message("Could not load payment details for this ticket.", ephemeral=True)
                 return
             ticket_id = ticket[0]
             wallet_address = ticket[7]
@@ -706,12 +635,10 @@ class RequestModal(ui.Modal, title="Fill out the format"):
                     interaction.guild.members,
                 )
             if not user:
-                embed = discord.Embed(description="User not found.", color=0xE67E22)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.response.send_message("User not found.", ephemeral=True)
                 return
         except Exception:
-            embed = discord.Embed(description="Invalid user ID or username.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Invalid user ID or username.", ephemeral=True)
             return
 
         # Acknowledge quickly so Discord does not show "Something went wrong"
@@ -766,16 +693,14 @@ class RequestModal(ui.Modal, title="Fill out the format"):
 
             save_ticket(ticket_id, channel.id, interaction.user.id, user.id, self.crypto, 0, "", "", role_msg.id, f"you_give={you_give} | trader_gives={trader_gives}", deal_id)
             await audit(interaction.guild, ticket_id, "ticket_created", f"buyer={interaction.user.id} seller={user.id} crypto={self.crypto} deal_id={deal_id}")
-            embed = discord.Embed(description=f"Ticket created: {channel.mention}", color=0x10B981)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(f"Ticket created: {channel.mention}", ephemeral=True)
         except Exception as exc:
             if channel is not None:
                 try:
                     await channel.delete(reason="Ticket setup failed during modal submit")
                 except Exception:
                     pass
-            embed = discord.Embed(description=f"Could not create ticket. {exc}", color=0xE74C3C)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(f"Could not create ticket. {exc}", ephemeral=True)
 
 class DeleteTicketView(ui.View):
     def __init__(self, ticket_id, user1, user2):
@@ -787,12 +712,10 @@ class DeleteTicketView(ui.View):
     @ui.button(label="Delete Ticket", style=discord.ButtonStyle.danger)
     async def delete(self, interaction, button):
         if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
-            embed = discord.Embed(description="Only ticket participants or the bot admin can delete this ticket.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only ticket participants or the bot admin can delete this ticket.", ephemeral=True)
             return
         await audit(interaction.guild, self.ticket_id, "ticket_deleted", f"deleted_by={interaction.user.id}")
-        embed = discord.Embed(description="Deleting ticket...", color=0x5865F2)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message("Deleting ticket...", ephemeral=True)
         await interaction.channel.delete(reason=f"Ticket {self.ticket_id} deleted by {interaction.user.id}")
 
 
@@ -806,12 +729,10 @@ class CloseTicketView(ui.View):
     @ui.button(label="🔒 ・ Close Ticket", style=discord.ButtonStyle.danger)
     async def close_ticket(self, interaction, button):
         if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
-            embed = discord.Embed(description="Only ticket participants or the bot admin can close this ticket.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only ticket participants or the bot admin can close this ticket.", ephemeral=True)
             return
         await audit(interaction.guild, self.ticket_id, "ticket_closed", f"closed_by={interaction.user.id}")
-        embed = discord.Embed(description="Closing ticket...", color=0x5865F2)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message("Closing ticket...", ephemeral=True)
         await interaction.channel.delete(reason=f"Ticket {self.ticket_id} closed by {interaction.user.id}")
 
 
@@ -846,12 +767,10 @@ class RoleSelectView(ui.View):
 
     async def assign_role(self, interaction, role_name, label):
         if self.roles_finalized:
-            embed = discord.Embed(description="Roles are already locked in for this ticket.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Roles are already locked in for this ticket.", ephemeral=True)
             return
         if interaction.user.id not in [self.user1, self.user2]:
-            embed = discord.Embed(description="Only ticket participants can choose a role.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only ticket participants can choose a role.", ephemeral=True)
             return
 
         previous_role = self.roles.get(interaction.user.id)
@@ -882,8 +801,7 @@ class RoleSelectView(ui.View):
     @ui.button(label="Reset", style=discord.ButtonStyle.danger)
     async def reset_roles(self, interaction, button):
         if interaction.user.id not in [self.user1, self.user2]:
-            embed = discord.Embed(description="Only ticket participants can reset roles.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only ticket participants can reset roles.", ephemeral=True)
             return
 
         self.roles = {self.user1: "buyer", self.user2: "seller"}
@@ -906,19 +824,16 @@ class InfoConfirmView(ui.View):
     @ui.button(label="Correct", style=discord.ButtonStyle.success)
     async def correct(self, interaction, button):
         if interaction.user.id not in [self.sender_id, self.receiver_id]:
-            embed = discord.Embed(description="Only ticket participants can confirm this.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only ticket participants can confirm this.", ephemeral=True)
             return
         if interaction.user.id in self.confirms:
-            embed = discord.Embed(description="You already confirmed this.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("You already confirmed this.", ephemeral=True)
             return
 
         self.confirms.add(interaction.user.id)
-        embed = discord.Embed(description=f"✅ <@{interaction.user.id}> clicked Correct.", color=0x10B981)
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.response.send_message(f"✅ <@{interaction.user.id}> clicked Correct.", ephemeral=False)
 
-        if len(self.confirms) == 2:
+        if len(self.confirms) == 1:
             for child in self.children:
                 child.disabled = True
             await interaction.message.edit(view=self)
@@ -932,11 +847,9 @@ class InfoConfirmView(ui.View):
     @ui.button(label="Incorrect", style=discord.ButtonStyle.danger)
     async def incorrect(self, interaction, button):
         if interaction.user.id not in [self.sender_id, self.receiver_id]:
-            embed = discord.Embed(description="Only ticket participants can reset this.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only ticket participants can reset this.", ephemeral=True)
             return
-        embed = discord.Embed(description="Please use the role selection above to choose the correct roles again.", color=0x5865F2)
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.response.send_message("Please use the role selection above to choose the correct roles again.", ephemeral=False)
 
 
 class AmountModal(ui.Modal, title="Set USD Amount"):
@@ -950,18 +863,18 @@ class AmountModal(ui.Modal, title="Set USD Amount"):
 
     async def on_submit(self, interaction):
         if interaction.user.id != self.buyer_id:
-            embed = discord.Embed(description="Only buyer can enter details.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Only buyer can enter details.", ephemeral=True)
             return
         try:
             amt = float(self.amount.value)
         except:
-            embed = discord.Embed(description="Invalid amount.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("Invalid amount.", ephemeral=True)
             return
         if not is_valid_deal_amount(amt):
-            embed = discord.Embed(description=f"Amount must be between ${MIN_DEAL_USD:.2f} and ${MAX_DEAL_USD:.2f}.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(
+                f"Amount must be between ${MIN_DEAL_USD:.2f} and ${MAX_DEAL_USD:.2f}.",
+                ephemeral=True,
+            )
             return
         desc = "No description provided"
         update_ticket(self.ticket_id, amount=amt, description=desc)
@@ -1003,13 +916,11 @@ class ConfirmAmountView(ui.View):
         if interaction.user.id not in [ticket[2], ticket[3]]:
             return
         if interaction.user.id in self.confirms:
-            embed = discord.Embed(description="You already confirmed the USD amount.", color=0xE67E22)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("You already confirmed the USD amount.", ephemeral=True)
             return
 
         self.confirms.add(interaction.user.id)
-        embed = discord.Embed(description=f"✅ <@{interaction.user.id}> confirmed the USD amount.", color=0x10B981)
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.response.send_message(f"✅ <@{interaction.user.id}> confirmed the USD amount.", ephemeral=False)
         if len(self.confirms) != 2:
             return
 
@@ -1055,8 +966,7 @@ class ConfirmAmountView(ui.View):
         ticket = get_ticket(self.ticket_id)
         if not ticket or interaction.user.id not in [ticket[2], ticket[3]]:
             return
-        embed = discord.Embed(description="Amount confirmation was marked incorrect. Please set the amount again.", color=0xE67E22)
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.response.send_message("Amount confirmation was marked incorrect. Please set the amount again.", ephemeral=False)
         await interaction.channel.send(embed=build_set_amount_prompt_embed(), view=AmountView(self.ticket_id, self.buyer_id, self.crypto))
 
 
@@ -1178,12 +1088,10 @@ class ReleaseRefundView(ui.View):
 
         ticket = get_ticket(self.ticket_id)
         if not ticket:
-            embed = discord.Embed(description="Ticket not found.", color=0xE67E22)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send("Ticket not found.", ephemeral=True)
             return
         if interaction.user.id != ticket[2] and not is_admin_user(interaction.guild, interaction.user):  # buyer or admin starts release flow
-            embed = discord.Embed(description="Only the buyer or an admin can start release.", color=0xE67E22)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send("Only the buyer or an admin can start release.", ephemeral=True)
             return
 
         ticket_status = str(ticket[6] or "").strip().lower()
@@ -1197,211 +1105,17 @@ class ReleaseRefundView(ui.View):
                     if ticket[4] == "LTC":
                         required_ltc = get_locked_amount_crypto(ticket) or usd_to_ltc(ticket[5])
                         current_paid, current_conf, current_txid, current_received = detect_ltc_payment(
-                            ticket[7]
+                            ticket[7],
+                            ticket[5],
+                            required_ltc=required_ltc,
                         )
-
-                        self.ticket_id = ticket_id
-                        self.crypto = crypto
-
-                        # ...existing code...
-
-                        @ui.button(label="(1) Confirm", style=discord.ButtonStyle.success)
-                        async def confirm(self, interaction, button):
-                            ticket = get_ticket(self.ticket_id)
-                            if not ticket:
-                                await interaction.response.send_message("Ticket not found.", ephemeral=True)
-                                return
-                            if interaction.user.id != ticket[3]:
-                                await interaction.response.send_message("Only seller can confirm withdraw.", ephemeral=True)
-                                return
-                            if ticket[6] == "completed":
-                                await interaction.response.send_message("This ticket has already been completed.", ephemeral=True)
-                                return
-                            if ticket[6] == "releasing":
-                                await interaction.response.send_message("A withdrawal is already being processed for this ticket.", ephemeral=True)
-                                return
-                            if ticket[6] != "paid":
-                                await interaction.response.send_message("Ticket must be in paid status before withdrawal.", ephemeral=True)
-                                return
-
-                            if not ticket[9]:
-                                await interaction.response.send_message("Seller address is missing. Please enter address again.", ephemeral=True)
-                                return
-                            if not ticket[8]:
-                                await interaction.response.send_message("Escrow key missing for this ticket. Contact admin.", ephemeral=True)
-                                return
-
-                            now = int(time.time())
-                            last = int(withdraw_cooldowns.get(self.ticket_id, 0))
-                            remaining = WITHDRAW_CONFIRM_COOLDOWN_SECONDS - (now - last)
-                            if remaining > 0:
-                                await interaction.response.send_message(
-                                    f"Please wait {remaining}s before trying withdrawal again.",
-                                    ephemeral=True,
-                                )
-                                return
-                            withdraw_cooldowns[self.ticket_id] = now
-                            if self.ticket_id in withdraw_processing:
-                                await interaction.response.send_message(
-                                    "Withdrawal is already being processed for this ticket.",
-                                    ephemeral=True,
-                                )
-                                return
-                            withdraw_processing.add(self.ticket_id)
-
-                            await interaction.response.defer()
-                            sending_embed = discord.Embed(
-                                title="◌ • Sending...",
-                                color=0x16181D,
-                            )
-                            await interaction.followup.send(embed=sending_embed)
-                            update_ticket(self.ticket_id, status="releasing")
-                            await audit(interaction.guild, self.ticket_id, "withdraw_attempt", f"seller={interaction.user.id} address={ticket[9]}")
-
-                            if has_fake_payment_marker(self.ticket_id):
-                                fake_txid = f"unconfirmed-{int(time.time())}"
-                                update_ticket(self.ticket_id, status="completed")
-                                await audit(
-                                    interaction.guild,
-                                    self.ticket_id,
-                                    "withdraw_success",
-                                    f"txid={fake_txid} address={ticket[9]} unconfirmed=true",
-                                )
-                                amount_sent = usd_to_ltc(ltc_seller_payout_usd(ticket[5])) if self.crypto == "LTC" else seller_payout_usd(ticket[5], self.crypto)
-                                embed = discord.Embed(
-                                    title="✅ • Withdrawal Successful",
-                                    description="Use /setprivacy to display your user in `#-completed`",
-                                    color=0x00FF00
-                                )
-                                embed.add_field(name="Transaction", value=f"`{fake_txid}`", inline=True)
-                                embed.add_field(name="Amount Sent", value=f"`{format_asset_amount(amount_sent, self.crypto)}` {self.crypto} (${ticket[5]:.2f})", inline=True)
-                                await interaction.followup.send(embed=embed, view=CloseTicketView(self.ticket_id, ticket[2], ticket[3]))
-                                withdraw_processing.discard(self.ticket_id)
-                                return
-
-                            try:
-                                if self.crypto == "LTC":
-                                    amount_ltc = usd_to_ltc(ltc_seller_payout_usd(ticket[5]))
-                                    tx = send_ltc(ticket[9], amount_ltc, ticket[8])
-                                else:
-                                    payout_usd = seller_payout_usd(ticket[5], self.crypto)
-                                    tx = send_usdt(ticket[9], payout_usd, ticket[8], network=usdt_network_from_asset(self.crypto))
-
-                                txid = extract_txid(tx)
-                                provider_error = tx.get("error") if isinstance(tx, dict) else None
-
-                                if provider_error or not txid:
-                                    update_ticket(self.ticket_id, status="paid")
-                                    await audit(interaction.guild, self.ticket_id, "withdraw_failed", str(tx)[:200])
-                                    details = str(provider_error or tx)
-                                    is_rate_limited = "limits reached" in details.lower()
-                                    embed = discord.Embed(
-                                        title=SPARKLES_TITLE,
-                                        description=(
-                                            "**WITHDRAWAL FAILED**\nProvider rate limit reached. Auto-retry queue started; this ticket will retry in the background."
-                                            if is_rate_limited
-                                            else "**WITHDRAWAL FAILED**\nFunds were not sent. Please retry or contact admin."
-                                        ),
-                                        color=0xE74C3C,
-                                    )
-                                    embed.add_field(name="Provider Response", value=f"`{details[:900]}`", inline=False)
-                                    if isinstance(tx, dict):
-                                        raw = str(tx)
-                                        embed.add_field(name="Raw Payload", value=f"`{raw[:900]}`", inline=False)
-                                    embed.set_footer(text=SPARKLES_FOOTER)
-                                    await interaction.followup.send(embed=embed, view=ReleaseConfirmView(self.ticket_id, self.crypto))
-                                    if is_rate_limited and self.ticket_id not in withdraw_retry_tasks:
-                                        retry_task = bot.loop.create_task(
-                                            retry_withdrawal(
-                                                self.ticket_id,
-                                                self.crypto,
-                                                interaction.channel.id,
-                                                interaction.message.id,
-                                            )
-                                        )
-                                        withdraw_retry_tasks[self.ticket_id] = retry_task
-                                        await interaction.followup.send(
-                                            "Auto-retry has been queued. The bot will retry withdrawal shortly.",
-                                            ephemeral=True,
-                                        )
-                                    withdraw_processing.discard(self.ticket_id)
-                                    return
-
-                                update_ticket(self.ticket_id, status="completed")
-                                await audit(interaction.guild, self.ticket_id, "withdraw_success", f"txid={txid} address={ticket[9]}")
-            
-                                # Build transaction link
-                                if self.crypto == "LTC":
-                                    tx_url = ltc_tx_link(txid)
-                                else:
-                                    tx_url = f"https://bscscan.com/tx/{txid}"
-                                tx_display = short_txid(txid)
-                                tx_value = f"[{tx_display}]({tx_url})"
-
-                                amount_sent = usd_to_ltc(ltc_seller_payout_usd(ticket[5])) if self.crypto == "LTC" else seller_payout_usd(ticket[5], self.crypto)
-            
-                                embed = discord.Embed(
-                                    title="✅ • Withdrawal Successful",
-                                    description="Use /setprivacy to display your user in `#-completed`",
-                                    color=0x00FF00
-                                )
-                                # Inline side by side like Sparkles
-                                embed.add_field(name="Transaction", value=tx_value, inline=True)
-                                embed.add_field(name="Amount Sent", value=f"`{format_asset_amount(amount_sent, self.crypto)}` {self.crypto} (${ticket[5]:.2f})", inline=True)
-                                await interaction.followup.send(embed=embed, view=CloseTicketView(self.ticket_id, ticket[2], ticket[3]))
-                                withdraw_processing.discard(self.ticket_id)
-                            except Exception as e:
-                                update_ticket(self.ticket_id, status="paid")
-                                await audit(interaction.guild, self.ticket_id, "withdraw_exception", str(e)[:200])
-                                await interaction.followup.send(f"Release failed: {e}", ephemeral=True)
-                                withdraw_processing.discard(self.ticket_id)
-
-                        @ui.button(label="Back", style=discord.ButtonStyle.secondary)
-                        async def back(self, interaction, button):
-                            await interaction.response.send_message("Withdrawal cancelled.", ephemeral=True)
-
-
-                    class CloseTicketView(ui.View):
-                        def __init__(self, ticket_id, user1, user2):
-                            super().__init__(timeout=None)
-                            self.ticket_id = ticket_id
-                            self.user1 = user1
-                            self.user2 = user2
-
-                        @ui.button(label="🔒 • Close Ticket", style=discord.ButtonStyle.danger)
-                        async def close_ticket(self, interaction, button):
-                            if interaction.user.id not in {self.user1, self.user2, ADMIN_ID}:
-                                await interaction.response.send_message("Only ticket participants or the bot admin can close this ticket.", ephemeral=True)
-                                return
-                            await audit(interaction.guild, self.ticket_id, "ticket_closed", f"closed_by={interaction.user.id}")
-                            await interaction.response.send_message("Closing ticket...", ephemeral=True)
-                            await interaction.channel.delete(reason=f"Ticket {self.ticket_id} closed by {interaction.user.id}")
-
-
-                    class SellerAddressEntryView(ui.View):
-                        def __init__(self, ticket_id, crypto):
-                            super().__init__(timeout=None)
-                            self.ticket_id = ticket_id
-                            self.crypto = crypto
-
-                        @ui.button(label="Enter Your LTC Address", style=discord.ButtonStyle.primary)
-                        async def enter_address(self, interaction, button):
-                            try:
-                                await interaction.response.send_modal(ReleaseModal(self.ticket_id, self.crypto))
-                            except discord.NotFound:
-                                return
-
-
-                    # USDT payment detection (if not LTC)
-                    if ticket[4] != "LTC":
+                    else:
                         current_paid, current_conf, current_txid, current_received = detect_usdt_payment(
                             ticket[7],
                             ticket[5],
                             network=usdt_network_from_asset(ticket[4]),
                         )
             except Exception:
-
-
                 current_paid = False
 
             if current_paid and current_conf >= CONFIRMATIONS_REQUIRED:
@@ -1445,8 +1159,6 @@ class ReleaseRefundView(ui.View):
         )
         embed.set_footer(text=SPARKLES_FOOTER)
         await interaction.response.send_message(embed=embed)
-
-
 
 class ReleaseModal(ui.Modal, title="Enter Seller Address"):
     address = ui.TextInput(label="Seller Wallet Address", placeholder="Address")
@@ -1520,8 +1232,7 @@ class ReleaseWarningView(ui.View):
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
-        embed = discord.Embed(description="Release cancelled.", color=0xE67E22)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message("Release cancelled.", ephemeral=True)
 
 
 class SellerAddressEntryView(ui.View):
@@ -1693,8 +1404,7 @@ class ReleaseConfirmView(ui.View):
 
     @ui.button(label="Back", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
-        embed = discord.Embed(description="Withdrawal cancelled.", color=0xE67E22)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message("Withdrawal cancelled.", ephemeral=True)
 
 class RequestLTCView(ui.View):
     def __init__(self):
@@ -1808,8 +1518,7 @@ async def send_commands_overview_pages(send_callable, pages):
 async def commands_overview(ctx):
     lines = build_commands_overview_lines()
     if not lines:
-        embed = discord.Embed(description="No commands are currently registered.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("No commands are currently registered.")
         return
     pages = build_commands_overview_pages(lines)
     await send_commands_overview_pages(lambda embed: ctx.send(embed=embed), pages)
@@ -1819,11 +1528,10 @@ async def commands_overview(ctx):
 async def commands_overview_slash(interaction: discord.Interaction):
     lines = build_commands_overview_lines()
     if not lines:
-        embed = discord.Embed(description="No commands are currently registered.", color=0xE67E22)
         if interaction.response.is_done():
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send("No commands are currently registered.", ephemeral=True)
         else:
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("No commands are currently registered.", ephemeral=True)
         return
 
     pages = build_commands_overview_pages(lines)
@@ -1874,30 +1582,26 @@ async def transaction(ctx):
         return
     if not ctx.guild or not ctx.author.guild_permissions.administrator:
         if ctx.interaction:
-            embed = discord.Embed(description="Only server admins can use this command.", color=0xE67E22)
-            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
+            await ctx.interaction.response.send_message("Only server admins can use this command.", ephemeral=True)
         else:
-            embed = discord.Embed(description="Only server admins can use this command.", color=0xE67E22)
-            await ctx.send(embed=embed)
+            await ctx.send("Only server admins can use this command.")
         return
 
     ticket = get_ticket_by_channel(ctx.channel.id)
     if not ticket:
-        embed = discord.Embed(description="Use this command inside a ticket channel.", color=0xE67E22)
         if ctx.interaction:
-            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
+            await ctx.interaction.response.send_message("Use this command inside a ticket channel.", ephemeral=True)
         else:
-            await ctx.send(embed=embed)
+            await ctx.send("Use this command inside a ticket channel.")
         return
 
     try:
         msg = await ctx.channel.fetch_message(ticket[10])  # message_id is index 10
     except:
-        embed = discord.Embed(description="Ticket payment message not found.", color=0xE67E22)
         if ctx.interaction:
-            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
+            await ctx.interaction.response.send_message("Ticket payment message not found.", ephemeral=True)
         else:
-            await ctx.send(embed=embed)
+            await ctx.send("Ticket payment message not found.")
         return
 
     if not ticket[7] or not ticket[8]:  # wallet_address and encrypted_private
@@ -1906,11 +1610,10 @@ async def transaction(ctx):
 
     pending_task = fake_confirmation_tasks.get(ticket[0])
     if pending_task and not pending_task.done():
-        embed = discord.Embed(description="Transaction already pending confirmation for this ticket.", color=0xE67E22)
         if ctx.interaction:
-            await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
+            await ctx.interaction.response.send_message("Transaction already pending confirmation for this ticket.", ephemeral=True)
         else:
-            await ctx.send(embed=embed)
+            await ctx.send("Transaction already pending confirmation for this ticket.")
         return
 
     wait_seconds = random.randint(60, 120)
@@ -1931,38 +1634,36 @@ async def transaction(ctx):
         finalize_fake_confirmation(ctx.guild, ticket[0], status_msg, ticket[4], wait_seconds)
     )
 
-    embed = discord.Embed(description="Transaction queued. Showing unconfirmed now.", color=0x3498DB)
     if ctx.interaction:
-        await ctx.interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.interaction.response.send_message(
+            "Transaction queued. Showing unconfirmed now.",
+            ephemeral=True,
+        )
     else:
-        await ctx.send(embed=embed)
+        await ctx.send("Transaction queued. Showing unconfirmed now.")
 
 @bot.command()
 async def fake_tx(ctx, channel_id: int):
     if not await enforce_sensitive_cooldown(ctx, "fake_tx"):
         return
     if not ctx.guild or not ctx.author.guild_permissions.administrator:
-        embed = discord.Embed(description="Only server admins can use this command.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("Only server admins can use this command.")
         return
 
     channel = ctx.guild.get_channel(channel_id)
     if not channel:
-        embed = discord.Embed(description="Channel not found.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("Channel not found.")
         return
 
     ticket = get_ticket_by_channel(channel_id)
     if not ticket:
-        embed = discord.Embed(description="Ticket not found.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("Ticket not found.")
         return
 
     try:
         msg = await channel.fetch_message(ticket[10])  # message_id is index 10
     except:
-        embed = discord.Embed(description="Ticket payment message not found.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("Ticket payment message not found.")
         return
 
     if not ticket[7] or not ticket[8]:
@@ -1971,8 +1672,7 @@ async def fake_tx(ctx, channel_id: int):
 
     pending_task = fake_confirmation_tasks.get(ticket[0])
     if pending_task and not pending_task.done():
-        embed = discord.Embed(description=f"Ticket {ticket[0]} already has a pending unconfirmed confirmation.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send(f"Ticket {ticket[0]} already has a pending unconfirmed confirmation.")
         return
 
     wait_seconds = random.randint(10, 15)
@@ -1992,8 +1692,7 @@ async def fake_tx(ctx, channel_id: int):
     fake_confirmation_tasks[ticket[0]] = bot.loop.create_task(
         finalize_fake_confirmation(ctx.guild, ticket[0], status_msg, ticket[4], wait_seconds)
     )
-    embed = discord.Embed(description=f"Ticket {ticket[0]} marked unconfirmed.", color=0x3498DB)
-    await ctx.send(embed=embed)
+    await ctx.send(f"Ticket {ticket[0]} marked unconfirmed.")
 
 
 @bot.command(aliases=["repair"])
@@ -2480,11 +2179,9 @@ async def backup_now(ctx):
 
     try:
         path = create_db_backup()
-        embed = discord.Embed(description=f"Database backup created: `{path}`", color=0x10B981)
-        await ctx.send(embed=embed)
+        await ctx.send(f"Database backup created: `{path}`")
     except Exception as exc:
-        embed = discord.Embed(description=f"Database backup failed: `{str(exc)[:900]}`", color=0xE74C3C)
-        await ctx.send(embed=embed)
+        await ctx.send(f"Database backup failed: `{str(exc)[:900]}`")
 
 
 @bot.command(name="backup_export", aliases=["securebackup", "backupenc"])
@@ -2508,8 +2205,7 @@ async def backup_export(ctx):
         embed.set_footer(text=SPARKLES_FOOTER)
         await ctx.send(embed=embed)
     except Exception as exc:
-        embed = discord.Embed(description=f"Encrypted backup export failed: `{str(exc)[:900]}`", color=0xE74C3C)
-        await ctx.send(embed=embed)
+        await ctx.send(f"Encrypted backup export failed: `{str(exc)[:900]}`")
 
 
 @bot.command(name="security_status", aliases=["secstatus", "dbstatus"])
@@ -2542,8 +2238,7 @@ async def security_status(ctx):
         embed.set_footer(text=SPARKLES_FOOTER)
         await ctx.send(embed=embed)
     except Exception as exc:
-        embed = discord.Embed(description=f"Security status check failed: `{str(exc)[:900]}`", color=0xE74C3C)
-        await ctx.send(embed=embed)
+        await ctx.send(f"Security status check failed: `{str(exc)[:900]}`")
 
 @bot.event
 async def on_ready():
@@ -2587,14 +2282,11 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        embed = discord.Embed(description="Missing argument. Check command usage and try again.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("Missing argument. Check command usage and try again.")
         return
     if isinstance(error, commands.BadArgument):
-        embed = discord.Embed(description="Invalid argument type. Check command usage and try again.", color=0xE67E22)
-        await ctx.send(embed=embed)
+        await ctx.send("Invalid argument type. Check command usage and try again.")
         return
-    embed = discord.Embed(description="An unexpected error occurred while running that command.", color=0xE74C3C)
-    await ctx.send(embed=embed)
+    await ctx.send("An unexpected error occurred while running that command.")
 
 bot.run(TOKEN)

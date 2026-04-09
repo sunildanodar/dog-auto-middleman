@@ -37,7 +37,7 @@ def _env_required(name):
 	return value
 
 # Deployment version identifier - update after each code push
-CODE_VERSION = "84cced7-free-panel-usdt-eth"
+CODE_VERSION = "f42a8a0-payment-monitor-hotfix"
 
 
 TOKEN = _env_required("DISCORD_TOKEN")

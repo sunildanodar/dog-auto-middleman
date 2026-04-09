@@ -1,0 +1,405 @@
+import requests
+from config import BLOCKCYPHER_TOKEN, MASTER_PRIVATE_KEY, MASTER_ADDRESS, CONFIRMATIONS_REQUIRED, BSC_RPC_URL, USDT_CONTRACT_ADDRESS, ETH_RPC_URL, USDT_ETH_CONTRACT_ADDRESS, ENCRYPTION_KEY, LTC_FEE_BUFFER_SATOSHIS, EVM_GAS_LIMIT_MULTIPLIER_BPS, EVM_GAS_FEE_BUFFER_WEI
+from web3 import Web3
+from cryptography.fernet import Fernet
+import secrets, hashlib, base58, ecdsa, json
+from decimal import Decimal, InvalidOperation
+from ecdsa.util import sigencode_der_canonize
+
+fernet = Fernet(ENCRYPTION_KEY)
+
+def encrypt_key(key):
+    return fernet.encrypt(key.encode()).decode()
+
+def decrypt_key(enc_key):
+    return fernet.decrypt(enc_key.encode()).decode()
+
+
+def _safe_json_or_error(response):
+    try:
+        return response.json()
+    except ValueError:
+        return {
+            "error": "Non-JSON response from provider",
+            "status_code": response.status_code,
+            "body": response.text[:500],
+        }
+
+
+def _is_limits_error(payload):
+    if payload is None:
+        return False
+    if isinstance(payload, dict):
+        text = json.dumps(payload).lower()
+    else:
+        text = str(payload).lower()
+    return "limits reached" in text
+
+# LTC functions
+def _sha256(d): return hashlib.sha256(d).digest()
+def _ripemd160(d):
+    h = hashlib.new("ripemd160")
+    h.update(d)
+    return h.digest()
+def _hash160(d): return _ripemd160(_sha256(d))
+def _checksum(p): return _sha256(_sha256(p))[:4]
+
+
+def _compressed_pubkey_from_private_hex(private_hex):
+    private_bytes = bytes.fromhex(private_hex)
+    sk = ecdsa.SigningKey.from_string(private_bytes, curve=ecdsa.SECP256k1)
+    vk = sk.get_verifying_key()
+    x, y = vk.pubkey.point.x(), vk.pubkey.point.y()
+    return (b"\x02" if y % 2 == 0 else b"\x03") + x.to_bytes(32, "big")
+
+
+def private_hex_to_ltc_address(private_hex):
+    pub = _compressed_pubkey_from_private_hex(private_hex)
+    payload = b"\x30" + _hash160(pub)
+    return base58.b58encode(payload + _checksum(payload)).decode()
+
+def generate_ltc_wallet():
+    priv = secrets.token_bytes(32)
+    sk = ecdsa.SigningKey.from_string(priv, curve=ecdsa.SECP256k1)
+    vk = sk.get_verifying_key()
+    x, y = vk.pubkey.point.x(), vk.pubkey.point.y()
+    pub = (b"\x02" if y % 2 == 0 else b"\x03") + x.to_bytes(32, "big")
+    payload = b'\x30' + _hash160(pub)
+    addr = base58.b58encode(payload + _checksum(payload)).decode()
+    return {"address": addr, "private": encrypt_key(priv.hex())}
+
+def usd_to_ltc(amount_usd):
+    try:
+        price_data = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd",
+            timeout=10,
+        ).json()
+        ltc_price = price_data["litecoin"]["usd"]
+        return amount_usd / ltc_price
+    except:
+        return amount_usd / 100  # Fallback: assume ~$100/LTC
+
+
+def detect_ltc_payment(address, amount_usd, required_ltc=None):
+    amount_ltc = required_ltc if required_ltc is not None else usd_to_ltc(amount_usd)
+    minimum_ltc = max(amount_ltc * 0.99, 0)
+
+    try:
+        response = requests.get(
+            f"https://api.blockcypher.com/v1/ltc/main/addrs/{address}/full?limit=50",
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError):
+        data = None
+
+    if data:
+        txs = data.get("txs", []) or []
+        for tx in txs:
+            confirmations = tx.get("confirmations", 0)
+            txid = tx.get("hash")
+            received_total = 0.0
+
+            for output in tx.get("outputs", []):
+                addresses = output.get("addresses", []) or []
+                if address in addresses:
+                    received_total += output.get("value", 0) / 1e8
+
+            if received_total >= minimum_ltc:
+                return True, confirmations, txid, received_total
+
+    try:
+        fallback = requests.get(
+            f"https://sochain.com/api/v2/address/LTC/{address}",
+            timeout=15,
+        )
+        fallback.raise_for_status()
+        payload = fallback.json()
+        if payload.get("status") != "success":
+            return False, 0, None, 0.0
+
+        for tx in payload.get("data", {}).get("txs", []):
+            txid = tx.get("txid")
+            details = requests.get(f"https://sochain.com/api/v2/tx/LTC/{txid}", timeout=15)
+            details.raise_for_status()
+            detail_payload = details.json()
+            if detail_payload.get("status") != "success":
+                continue
+
+            confirmations = detail_payload["data"].get("confirmations", 0)
+            received_total = 0.0
+            for output in detail_payload["data"].get("outputs", []):
+                if output.get("address") == address:
+                    received_total += float(output.get("value", 0))
+
+            if received_total >= minimum_ltc:
+                return True, confirmations, txid, received_total
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return False, 0, None, 0.0
+
+    return False, 0, None, 0.0
+
+def send_ltc(to_address, amount, priv_key):
+    priv = decrypt_key(priv_key)
+    requested_satoshis = int(amount * 1e8)
+    # Keep a small buffer for network fees so small tickets do not fail on broadcast.
+    fee_buffer_satoshis = max(int(LTC_FEE_BUFFER_SATOSHIS), 0)
+    value_satoshis = requested_satoshis - fee_buffer_satoshis
+    if value_satoshis <= 0:
+        return {"error": "Payout amount is too small after reserving network fee buffer."}
+
+    from_address = private_hex_to_ltc_address(priv)
+
+    new_url = f"https://api.blockcypher.com/v1/ltc/main/txs/new?token={BLOCKCYPHER_TOKEN}"
+    new_data = {
+        "inputs": [{"addresses": [from_address]}],
+        "outputs": [{"addresses": [to_address], "value": value_satoshis}],
+        "change_address": from_address,
+    }
+
+    try:
+        new_resp = requests.post(new_url, json=new_data, timeout=20)
+    except requests.RequestException as exc:
+        return {"error": f"Network error while creating tx: {exc}"}
+
+    new_payload = _safe_json_or_error(new_resp)
+    if new_resp.status_code >= 400:
+        if _is_limits_error(new_payload):
+            # Fallback path: micro endpoint sometimes works when tx/new is throttled.
+            micro_url = f"https://api.blockcypher.com/v1/ltc/main/txs/micro?token={BLOCKCYPHER_TOKEN}"
+            micro_data = {
+                "from_private": priv,
+                "to_address": to_address,
+                "value_satoshis": value_satoshis,
+            }
+            try:
+                micro_resp = requests.post(micro_url, json=micro_data, timeout=20)
+                micro_payload = _safe_json_or_error(micro_resp)
+                if micro_resp.status_code < 400:
+                    tx_hash = None
+                    if isinstance(micro_payload, dict):
+                        tx_hash = micro_payload.get("tx_hash") or micro_payload.get("hash") or micro_payload.get("txid")
+                    if tx_hash:
+                        micro_payload["tx_hash"] = tx_hash
+                    return micro_payload
+                return micro_payload
+            except requests.RequestException as exc:
+                return {"error": f"Network error while using micro fallback: {exc}"}
+        if isinstance(new_payload, dict):
+            new_payload.setdefault("error", "Provider rejected unsigned transaction")
+        return new_payload
+
+    tosign = new_payload.get("tosign", []) if isinstance(new_payload, dict) else []
+    if not tosign:
+        return {"error": "Provider did not return data to sign.", "provider": new_payload}
+
+    try:
+        sk = ecdsa.SigningKey.from_string(bytes.fromhex(priv), curve=ecdsa.SECP256k1)
+        pubkey_hex = _compressed_pubkey_from_private_hex(priv).hex()
+        signatures = []
+        pubkeys = []
+        for item in tosign:
+            digest = bytes.fromhex(item)
+            sig = sk.sign_digest_deterministic(digest, hashfunc=hashlib.sha256, sigencode=sigencode_der_canonize)
+            # BlockCypher expects DER signatures in hex here.
+            signatures.append(sig.hex())
+            pubkeys.append(pubkey_hex)
+    except Exception as exc:
+        return {"error": f"Signing failed: {exc}"}
+
+    new_payload["signatures"] = signatures
+    new_payload["pubkeys"] = pubkeys
+
+    send_url = f"https://api.blockcypher.com/v1/ltc/main/txs/send?token={BLOCKCYPHER_TOKEN}"
+    try:
+        send_resp = requests.post(send_url, json=new_payload, timeout=20)
+    except requests.RequestException as exc:
+        return {"error": f"Network error while broadcasting tx: {exc}"}
+
+    send_payload = _safe_json_or_error(send_resp)
+    if send_resp.status_code >= 400:
+        if _is_limits_error(send_payload):
+            # Fallback path: micro endpoint sometimes works when tx/send is throttled.
+            micro_url = f"https://api.blockcypher.com/v1/ltc/main/txs/micro?token={BLOCKCYPHER_TOKEN}"
+            micro_data = {
+                "from_private": priv,
+                "to_address": to_address,
+                "value_satoshis": value_satoshis,
+            }
+            try:
+                micro_resp = requests.post(micro_url, json=micro_data, timeout=20)
+                micro_payload = _safe_json_or_error(micro_resp)
+                if micro_resp.status_code < 400:
+                    tx_hash = None
+                    if isinstance(micro_payload, dict):
+                        tx_hash = micro_payload.get("tx_hash") or micro_payload.get("hash") or micro_payload.get("txid")
+                    if tx_hash:
+                        micro_payload["tx_hash"] = tx_hash
+                    return micro_payload
+                return micro_payload
+            except requests.RequestException as exc:
+                return {"error": f"Network error while using micro fallback: {exc}"}
+        if isinstance(send_payload, dict):
+            send_payload.setdefault("error", "Provider rejected signed transaction")
+        return send_payload
+
+    if isinstance(send_payload, dict) and isinstance(send_payload.get("tx"), dict):
+        tx_hash = send_payload["tx"].get("hash")
+        if tx_hash:
+            send_payload["tx_hash"] = tx_hash
+    return send_payload
+
+def sweep_ltc_to_master(priv_key):
+    priv = decrypt_key(priv_key)
+    url = f"https://api.blockcypher.com/v1/ltc/main/txs/micro?token={BLOCKCYPHER_TOKEN}"
+    data = {"from_private": priv, "to_address": MASTER_ADDRESS, "value_satoshis": -1}
+    try:
+        response = requests.post(url, json=data, timeout=20)
+    except requests.RequestException as exc:
+        return {"error": f"Network error while sweeping LTC: {exc}"}
+    return _safe_json_or_error(response)
+
+# EVM USDT functions (BSC + ETH)
+w3_bsc = Web3(Web3.HTTPProvider(BSC_RPC_URL))
+w3_eth = Web3(Web3.HTTPProvider(ETH_RPC_URL))
+
+
+def _network_key(network):
+    value = (network or "BEP20").upper().strip()
+    if value in ("ETH", "ERC20", "ETHEREUM"):
+        return "ETH"
+    return "BEP20"
+
+
+def _network_client_and_contract(network):
+    key = _network_key(network)
+    if key == "ETH":
+        return w3_eth, USDT_ETH_CONTRACT_ADDRESS, 6
+    return w3_bsc, USDT_CONTRACT_ADDRESS, 18
+
+
+def _to_token_units(amount, decimals):
+    try:
+        value = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    scale = Decimal(10) ** decimals
+    return int(value * scale)
+
+def generate_bep20_wallet():
+    account = w3_bsc.eth.account.create()
+    return {"address": account.address, "private": encrypt_key(account.key.hex())}
+
+def detect_usdt_payment(address, amount, network="BEP20"):
+    w3, contract_address, decimals = _network_client_and_contract(network)
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}])
+    balance = contract.functions.balanceOf(Web3.to_checksum_address(address)).call()
+    usdt_balance = balance / (10 ** decimals)
+    confirmations = 0
+    txid = None
+    try:
+        latest_block = w3.eth.block_number
+        from_block = max(latest_block - 5000, 0)
+        transfer_topic = w3.keccak(text="Transfer(address,address,uint256)").hex()
+        padded_address = "0x" + "0" * 24 + Web3.to_checksum_address(address)[2:].lower()
+        logs = w3.eth.get_logs({
+            "fromBlock": from_block,
+            "toBlock": latest_block,
+            "address": Web3.to_checksum_address(contract_address),
+            "topics": [transfer_topic, None, padded_address],
+        })
+        if logs:
+            latest_log = max(logs, key=lambda item: (item.get("blockNumber", 0), item.get("logIndex", 0)))
+            tx_hash = latest_log.get("transactionHash")
+            txid = tx_hash.hex() if tx_hash else None
+            log_block = latest_log.get("blockNumber", 0) or 0
+            if log_block > 0 and latest_block >= log_block:
+                confirmations = (latest_block - log_block) + 1
+    except Exception:
+        txid = None
+        confirmations = 0
+    if usdt_balance >= amount:
+        if confirmations <= 0:
+            confirmations = 1
+        return True, confirmations, txid, usdt_balance
+    return False, confirmations, txid, usdt_balance
+
+def send_usdt(to_address, amount, priv_key, network="BEP20"):
+    try:
+        w3, contract_address, decimals = _network_client_and_contract(network)
+        priv = decrypt_key(priv_key)
+        account = w3.eth.account.from_key(priv)
+        recipient = Web3.to_checksum_address(to_address)
+        amount_units = _to_token_units(amount, decimals)
+        if amount_units is None:
+            return {"error": "Invalid USDT amount for transfer."}
+
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(contract_address),
+            abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}],
+        )
+
+        transfer_call = contract.functions.transfer(recipient, amount_units)
+        gas_price = w3.eth.gas_price
+        nonce = w3.eth.get_transaction_count(account.address)
+        try:
+            estimated_gas = transfer_call.estimate_gas({'from': account.address})
+        except Exception:
+            estimated_gas = 200000
+
+        multiplier_bps = max(int(EVM_GAS_LIMIT_MULTIPLIER_BPS), 10000)
+        gas_limit = max(int(estimated_gas * multiplier_bps / 10000), 21000)
+
+        native_balance = w3.eth.get_balance(account.address)
+        fee_buffer_wei = max(int(EVM_GAS_FEE_BUFFER_WEI), 0)
+        fee_wei = (gas_limit * gas_price) + fee_buffer_wei
+        if native_balance < fee_wei:
+            symbol = "ETH" if _network_key(network) == "ETH" else "BNB"
+            return {
+                "error": (
+                    f"Insufficient {symbol} for gas. "
+                    f"Need about {Web3.from_wei(fee_wei, 'ether')} {symbol} (includes safety buffer), "
+                    f"wallet has {Web3.from_wei(native_balance, 'ether')} {symbol}."
+                )
+            }
+
+        tx = transfer_call.build_transaction({
+            'from': account.address,
+            'gas': gas_limit,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': w3.eth.chain_id,
+        })
+        signed = w3.eth.account.sign_transaction(tx, priv)
+        raw_tx = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
+        if raw_tx is None:
+            return {"error": "Unable to read signed transaction bytes from provider SDK."}
+        tx_hash = w3.eth.send_raw_transaction(raw_tx)
+        return tx_hash.hex()
+    except Exception as exc:
+        return {"error": f"USDT send failed: {exc}"}
+
+def sweep_usdt_to_master(priv_key, network="BEP20"):
+    # Similar to send, but to master
+    w3, contract_address, _decimals = _network_client_and_contract(network)
+    priv = decrypt_key(priv_key)
+    account = w3.eth.account.from_key(priv)
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=[{"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}])
+    balance = contract.functions.balanceOf(account.address).call()
+    if balance > 0:
+        tx = contract.functions.transfer(Web3.to_checksum_address(MASTER_ADDRESS), balance).build_transaction({
+            'from': account.address,
+            'gas': 200000,
+            'gasPrice': w3.eth.gas_price,
+            'nonce': w3.eth.get_transaction_count(account.address),
+        })
+        signed = w3.eth.account.sign_transaction(tx, priv)
+        raw_tx = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
+        if raw_tx is None:
+            return {"error": "Unable to read signed transaction bytes from provider SDK."}
+        tx_hash = w3.eth.send_raw_transaction(raw_tx)
+        return tx_hash.hex()
+    return None

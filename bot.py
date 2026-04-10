@@ -1,4 +1,28 @@
-﻿import discord
+﻿class RequestPayPalView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="Request PayPal", style=discord.ButtonStyle.primary, custom_id="panel_request_paypal")
+    async def paypal(self, interaction, button):
+        await interaction.response.send_modal(RequestModal("PAYPAL"))
+@bot.command(name="paypal", help="Show the PayPal-only panel for creating a PayPal ticket")
+async def paypal_panel(ctx):
+    intro_embed = discord.Embed(
+        title="Dog Auto Middleman (PayPal Only)",
+        description=(
+            "• **Paid Service (PayPal Only)**\n"
+            "• Read our ToS before using the bot: `# 🌺・tos`\n"
+            "• The ToS in `# 🏹・mm-tos` also apply here.\n\n"
+            "**Fees:**\n"
+            "• Deals $250+: $1.50\n"
+            "• Deals under $250: $0.50\n"
+            "• Deals under $50 are **FREE**"
+        ),
+        color=0x1F2328,
+    )
+    intro_embed.set_footer(text="Dog Trade (PayPal Only)")
+    await ctx.send(embed=intro_embed, view=RequestPayPalView())
+import discord
 import asyncio
 import time
 import datetime
@@ -68,32 +92,57 @@ def build_paypal_confirmed_embed(amount_usd, wallet_address, txid=None):
     embed.add_field(name="Total Amount Received", value=f"`$ {amount_usd:.2f}`", inline=True)
     embed.add_field(name="PayPal Address", value=f"```{wallet_address}```", inline=False)
     return embed
-@bot.command(name="paypal", help="Create a PayPal payment panel (simulated)")
-async def paypal_panel(ctx):
-    # Create a simulated PayPal payment panel (not crypto)
-    ticket_id = get_next_ticket_id()
-    user = ctx.author
-    # For demo, use bot as the other party
-    other_user = ctx.guild.me if ctx.guild else user
-    amount_usd = random.uniform(10, 100)  # Simulate a random amount, or prompt user for real use
-    wallet = generate_paypal_wallet()
-    channel = ctx.channel
-    # Save a fake ticket (simulate as if PayPal is the asset)
-    save_ticket(ticket_id, channel.id, user.id, other_user.id, "PAYPAL", amount_usd, wallet["address"], "", 0, "", f"paypal-{ticket_id}")
-    ticket = get_ticket(ticket_id)
-    embed = build_paypal_payment_embed(ticket, wallet["address"])
-    payment_msg = await channel.send(f"<@{user.id}> Send the payment to the following PayPal address.", embed=embed)
-    update_ticket(ticket_id, message_id=payment_msg.id, status="pending_payment")
-    # Simulate unconfirmed and confirmed status
-    await asyncio.sleep(2)  # Short delay for realism
+
+# --- Slash command for PayPal simulation ---
+@bot.tree.command(name="paypal", description="Simulate a PayPal payment in this ticket (only for ticket participants)")
+async def paypal_slash(interaction: discord.Interaction):
+    # Only allow in ticket channels
+    ticket = get_ticket_by_channel(interaction.channel.id)
+    if not ticket or ticket[4] != "PAYPAL":
+        await interaction.response.send_message("This command can only be used in a PayPal ticket channel.", ephemeral=True)
+        return
+    # Only allow ticket participants or admin
+    allowed_ids = {ticket[2], ticket[3], ADMIN_ID}
+    if interaction.user.id not in allowed_ids:
+        await interaction.response.send_message("Only ticket participants can use this command.", ephemeral=True)
+        return
+    # Only allow if not already paid
+    if str(ticket[6]).lower() == "paid":
+        await interaction.response.send_message("This ticket is already marked as paid.", ephemeral=True)
+        return
+    wallet_address = ticket[7]
+    amount_usd = float(ticket[5])
     txid = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
-    unconfirmed_embed = build_paypal_unconfirmed_embed(amount_usd, wallet["address"], txid=txid)
-    await channel.send(embed=unconfirmed_embed)
-    await asyncio.sleep(3)  # Short delay for realism
-    confirmed_embed = build_paypal_confirmed_embed(amount_usd, wallet["address"], txid=txid)
-    await channel.send(embed=confirmed_embed)
-    update_ticket(ticket_id, status="paid")
-    await ctx.send("PayPal payment simulation complete. Transaction confirmed.")
+    # Show unconfirmed in the ticket channel
+    unconfirmed_embed = build_paypal_unconfirmed_embed(amount_usd, wallet_address, txid=txid)
+    await interaction.response.send_message(embed=unconfirmed_embed)
+    # Wait 60-100 seconds
+    wait_seconds = random.randint(60, 100)
+    await asyncio.sleep(wait_seconds)
+    # Show confirmed in the ticket channel
+    confirmed_embed = build_paypal_confirmed_embed(amount_usd, wallet_address, txid=txid)
+    await interaction.channel.send(embed=confirmed_embed)
+    update_ticket(ticket[0], status="paid")
+    # Post release controls in the ticket channel after confirmation
+    release_embed = discord.Embed(
+        title="✅ • You may proceed with your trade.",
+        description=(
+            f"1. <@{ticket[3]}> Give your trader the items or payment you agreed on.\n\n"
+            f"2. <@{ticket[2]}> Once you have received your items, click \"Release\" so your trader can claim the PayPal funds."
+        ),
+        color=0x10B981,
+    )
+    channel = interaction.channel
+    try:
+        release_msg = await channel.send(
+            f"<@{ticket[2]}> <@{ticket[3]}>",
+            embed=release_embed,
+            view=ReleaseRefundView(ticket[0], "PAYPAL"),
+        )
+        update_ticket(ticket[0], message_id=release_msg.id)
+        await audit(interaction.guild, ticket[0], "release_controls_posted", f"message_id={release_msg.id}")
+    except Exception as exc:
+        pass
 WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
 WITHDRAW_RETRY_BASE_SECONDS = 180
 WITHDRAW_RETRY_MAX_ATTEMPTS = 5

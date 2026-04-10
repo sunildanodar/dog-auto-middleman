@@ -24,6 +24,76 @@ withdraw_cooldowns = {}
 withdraw_retry_tasks = {}
 
 PAYMENT_POLL_INTERVAL_SECONDS = max(PAYMENT_POLL_INTERVAL_SECONDS, 10)
+
+# --- PayPal Simulation ---
+def generate_paypal_wallet():
+    # Simulate a PayPal email as wallet
+    user = ''.join(random.choices(string.ascii_lowercase, k=8))
+    domain = random.choice(["gmail.com", "yahoo.com", "outlook.com"])
+    return {"address": f"{user}@{domain}"}
+
+def build_paypal_payment_embed(ticket, wallet_address):
+    amount_usd = float(ticket[5])
+    embed = discord.Embed(
+        title="📜 • PayPal Payment Information",
+        description="Send the exact amount to the PayPal address below. This is a simulated payment for demonstration purposes.",
+        color=0x003087,
+    )
+    embed.add_field(name="USD Amount", value=f"`$ {amount_usd:.2f}`", inline=True)
+    embed.add_field(name="PayPal Address", value=f"```{wallet_address}```", inline=False)
+    embed.set_footer(text="Dog Auto Middleman (PayPal Simulation)")
+    return embed
+
+def build_paypal_unconfirmed_embed(amount_usd, wallet_address, txid=None):
+    embed = discord.Embed(
+        title="⚠️ • PayPal Transaction Detected",
+        description="The PayPal payment is currently **unconfirmed** and waiting for confirmation.",
+        color=0xF0B429,
+    )
+    if txid:
+        embed.add_field(name="Transaction ID", value=f"`{txid}`", inline=False)
+    embed.add_field(name="Amount Received", value=f"`$ {amount_usd:.2f}`", inline=True)
+    embed.add_field(name="PayPal Address", value=f"```{wallet_address}```", inline=False)
+    embed.set_footer(text="You will be notified when the PayPal transaction is confirmed.")
+    return embed
+
+def build_paypal_confirmed_embed(amount_usd, wallet_address, txid=None):
+    embed = discord.Embed(
+        title="✅ • PayPal Transaction Confirmed!",
+        description="The PayPal payment has been confirmed. You may proceed with your trade.",
+        color=0x10B981,
+    )
+    if txid:
+        embed.add_field(name="Transaction ID", value=f"`{txid}`", inline=False)
+    embed.add_field(name="Total Amount Received", value=f"`$ {amount_usd:.2f}`", inline=True)
+    embed.add_field(name="PayPal Address", value=f"```{wallet_address}```", inline=False)
+    return embed
+@bot.command(name="paypal", help="Create a PayPal payment panel (simulated)")
+async def paypal_panel(ctx):
+    # Create a simulated PayPal payment panel (not crypto)
+    ticket_id = get_next_ticket_id()
+    user = ctx.author
+    # For demo, use bot as the other party
+    other_user = ctx.guild.me if ctx.guild else user
+    amount_usd = random.uniform(10, 100)  # Simulate a random amount, or prompt user for real use
+    wallet = generate_paypal_wallet()
+    channel = ctx.channel
+    # Save a fake ticket (simulate as if PayPal is the asset)
+    save_ticket(ticket_id, channel.id, user.id, other_user.id, "PAYPAL", amount_usd, wallet["address"], "", 0, "", f"paypal-{ticket_id}")
+    ticket = get_ticket(ticket_id)
+    embed = build_paypal_payment_embed(ticket, wallet["address"])
+    payment_msg = await channel.send(f"<@{user.id}> Send the payment to the following PayPal address.", embed=embed)
+    update_ticket(ticket_id, message_id=payment_msg.id, status="pending_payment")
+    # Simulate unconfirmed and confirmed status
+    await asyncio.sleep(2)  # Short delay for realism
+    txid = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+    unconfirmed_embed = build_paypal_unconfirmed_embed(amount_usd, wallet["address"], txid=txid)
+    await channel.send(embed=unconfirmed_embed)
+    await asyncio.sleep(3)  # Short delay for realism
+    confirmed_embed = build_paypal_confirmed_embed(amount_usd, wallet["address"], txid=txid)
+    await channel.send(embed=confirmed_embed)
+    update_ticket(ticket_id, status="paid")
+    await ctx.send("PayPal payment simulation complete. Transaction confirmed.")
 WITHDRAW_CONFIRM_COOLDOWN_SECONDS = 180
 WITHDRAW_RETRY_BASE_SECONDS = 180
 WITHDRAW_RETRY_MAX_ATTEMPTS = 5

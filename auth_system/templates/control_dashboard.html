@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Bot control{% endblock %}
+{% block content %}
+<h1>Bot control panel</h1>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 1rem;">Signed in as {{ user.email }} ({{ user.role }}) · API: <code style="font-size:.8rem;">{{ bot_api_base }}</code></p>
+
+{% if not proxy_configured %}
+<div class="error" style="margin-bottom:1rem;">Set <code>CONTROL_BOT_API_KEY</code> (and <code>CONTROL_BOT_API_BASE</code> if needed) in the web app environment to reach the bot API.</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem;">
+  <h2 style="font-size:1rem;margin:0 0 .75rem;">Status</h2>
+  <dl style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1rem;">
+    <dt style="margin:0;color:var(--muted);font-size:.8rem;">Bot</dt>
+    <dd style="margin:0;" id="st-online">—</dd>
+    <dt style="margin:0;color:var(--muted);font-size:.8rem;">Uptime</dt>
+    <dd style="margin:0;" id="st-uptime">—</dd>
+    <dt style="margin:0;color:var(--muted);font-size:.8rem;">Mode</dt>
+    <dd style="margin:0;" id="st-mode">—</dd>
+    <dt style="margin:0;color:var(--muted);font-size:.8rem;">Active tickets</dt>
+    <dd style="margin:0;" id="st-tickets">—</dd>
+  </dl>
+  <div id="ticket-list-wrap" style="margin-top:.75rem;">
+    <div style="color:var(--muted);font-size:.8rem;margin-bottom:.35rem;">Open tickets</div>
+    <div id="ticket-list" style="font-size:.8rem;max-height:160px;overflow:auto;"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem;">
+  <h2 style="font-size:1rem;margin:0 0 .75rem;">Controls</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;">
+    <button type="button" id="btn-restart" class="secondary" style="width:auto;">Restart bot</button>
+    <button type="button" id="btn-auto-on" class="secondary" style="width:auto;">Auto MM on</button>
+    <button type="button" id="btn-auto-off" class="secondary" style="width:auto;">Manual MM (off)</button>
+    <button type="button" id="btn-panel" class="secondary" style="width:auto;">Send panel</button>
+    <button type="button" id="btn-close-all" class="secondary" style="width:auto;">Force close all open</button>
+    <button type="button" id="btn-close-ids" class="secondary" style="width:auto;">Force close by ticket IDs…</button>
+    <button type="button" id="btn-announce" class="secondary" style="width:auto;">Send announcement…</button>
+  </div>
+  <p style="color:var(--muted);font-size:.8rem;margin:.75rem 0 0;">Panel uses <code>BOT_CONTROL_PANEL_CHANNEL_ID</code> if the channel field is empty. Announcements use <code>BOT_CONTROL_ANNOUNCE_CHANNEL_ID</code>.</p>
+</div>
+
+<div class="card">
+  <h2 style="font-size:1rem;margin:0 0 .75rem;">Live log</h2>
+  <pre id="log-box" style="background:#0c1016;border-radius:8px;padding:.75rem;font-size:.75rem;max-height:280px;overflow:auto;white-space:pre-wrap;margin:0;"></pre>
+</div>
+
+<div class="nav" style="margin-top:1rem;"><a href="/dashboard">Dashboard</a></div>
+
+<script>
+(function(){
+  const logBox = document.getElementById('log-box');
+  function showErr(e) {
+    logBox.textContent = 'Error: ' + (e && e.message ? e.message : e);
+  }
+  async function jfetch(url, opt) {
+    const r = await fetch(url, Object.assign({ credentials: 'same-origin', headers: {'Content-Type': 'application/json'} }, opt || {}));
+    const t = await r.text();
+    let data;
+    try { data = JSON.parse(t); } catch(_) { data = t; }
+    if (!r.ok) throw new Error(typeof data === 'string' ? data : JSON.stringify(data));
+    return data;
+  }
+  async function refreshStatus() {
+    try {
+      const s = await jfetch('/control/api/status');
+      document.getElementById('st-online').textContent = s.online ? 'Online' : 'Offline';
+      document.getElementById('st-uptime').textContent = Math.floor(s.uptime_seconds || 0) + ' s';
+      document.getElementById('st-mode').textContent = s.auto_mm_enabled ? 'Auto MM' : 'Manual MM';
+      document.getElementById('st-tickets').textContent = (s.active_tickets_count || 0) + ' open';
+      const list = document.getElementById('ticket-list');
+      const rows = s.active_tickets || [];
+      if (!rows.length) { list.textContent = 'None'; return; }
+      list.innerHTML = '<table style="width:100%;border-collapse:collapse;"><thead><tr><th align="left">#</th><th align="left">Status</th><th align="left">Crypto</th><th align="left">Amt</th></tr></thead><tbody>' +
+        rows.map(function(t) {
+          return '<tr><td>' + t.ticket_id + '</td><td>' + (t.status || '') + '</td><td>' + (t.crypto || '') + '</td><td>' + (t.amount != null ? t.amount : '') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    } catch (e) { document.getElementById('st-online').textContent = '— (unreachable)'; }
+  }
+  async function refreshLogs() {
+    try {
+      const d = await jfetch('/control/api/logs?limit=120');
+      logBox.textContent = (d.lines || []).join(String.fromCharCode(10));
+      logBox.scrollTop = logBox.scrollHeight;
+    } catch (e) { /* keep previous */ }
+  }
+  document.getElementById('btn-restart').onclick = async function() {
+    if (!confirm('Restart the bot process? The host should restart it (systemd/PM2).')) return;
+    try { await jfetch('/control/api/restart', { method: 'POST', body: '{}' }); alert('Restart scheduled.'); } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btn-auto-on').onclick = async function() {
+    try { await jfetch('/control/api/mode', { method: 'POST', body: JSON.stringify({ auto_mm: true }) }); refreshStatus(); } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btn-auto-off').onclick = async function() {
+    try { await jfetch('/control/api/mode', { method: 'POST', body: JSON.stringify({ auto_mm: false }) }); refreshStatus(); } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btn-panel').onclick = async function() {
+    const cid = prompt('Discord channel ID (blank = env default):', '');
+    const body = cid && cid.trim() ? { channel_id: parseInt(cid, 10) } : {};
+    try { await jfetch('/control/api/panel/send', { method: 'POST', body: JSON.stringify(body) }); alert('Panel sent.'); } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btn-close-all').onclick = async function() {
+    if (!confirm('Force-cancel ALL open tickets in the database?')) return;
+    try {
+      const r = await jfetch('/control/api/tickets/force-close', { method: 'POST', body: JSON.stringify({ all_open: true, reason: 'Control panel bulk close' }) });
+      alert('Closed: ' + (r.closed_ticket_ids || []).join(', '));
+      refreshStatus();
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btn-close-ids').onclick = async function() {
+    const raw = prompt('Comma-separated ticket IDs to force-close:', '');
+    if (!raw || !raw.trim()) return;
+    const ticket_ids = raw.split(',').map(function(s) { return parseInt(s.trim(), 10); }).filter(function(n) { return !isNaN(n); });
+    if (!ticket_ids.length) return;
+    try {
+      const r = await jfetch('/control/api/tickets/force-close', { method: 'POST', body: JSON.stringify({ ticket_ids: ticket_ids, reason: 'Control panel ID close' }) });
+      alert('Closed: ' + (r.closed_ticket_ids || []).join(', '));
+      refreshStatus();
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btn-announce').onclick = async function() {
+    const msg = prompt('Announcement text:');
+    if (!msg) return;
+    const cid = prompt('Channel ID (blank = env default):', '');
+    const body = { content: msg };
+    if (cid && cid.trim()) body.channel_id = parseInt(cid, 10);
+    try { await jfetch('/control/api/announce', { method: 'POST', body: JSON.stringify(body) }); alert('Sent.'); } catch (e) { alert(e.message); }
+  };
+  refreshStatus();
+  refreshLogs();
+  setInterval(refreshStatus, 5000);
+  setInterval(refreshLogs, 4000);
+})();
+</script>
+{% endblock %}

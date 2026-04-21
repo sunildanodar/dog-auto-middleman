@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="card">
+  <dl>
+    <dt>Email</dt>
+    <dd>{{ user.email }}</dd>
+    <dt>Role</dt>
+    <dd>{{ user.role }}</dd>
+    <dt>Subscription</dt>
+    <dd>{{ user.subscription_tier }}</dd>
+    <dt>Renews / expires</dt>
+    <dd>{{ subscription_expires_display }}</dd>
+    <dt>Member since</dt>
+    <dd>{{ user.created_at }}</dd>
+  </dl>
+  <form method="post" action="/logout" style="margin-top:1.25rem;">
+    <button type="submit" class="secondary">Log out</button>
+  </form>
+  {% if user.role == 'admin' or user.role == 'staff' %}
+  <div class="nav" style="margin-top:1rem;"><a href="/control">Bot control panel</a></div>
+  {% endif %}
+</div>
+{% endblock %}

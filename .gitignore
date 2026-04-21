@@ -1,16 +1,32 @@
-# Secrets
+# Environment & secrets — NEVER commit these
 .env
+.env.*
+*.env
+secrets.txt
+config_local.py
 
-# Python cache
+# Python bytecode
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.pyo
 
-# Local runtime data
-data.db
+# Database & backups — contain private keys
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
 db_backups/
-logs/
 
-# OS/editor
+# OS / editor noise
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
 .vscode/
+.idea/
+
+# Logs
+*.log
+logs/

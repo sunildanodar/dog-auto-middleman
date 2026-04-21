@@ -227,6 +227,21 @@ def get_tickets_by_status(statuses):
     return results
 
 
+def get_open_tickets():
+    """Tickets that are not completed or cancelled (control panel / ops)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT * FROM tickets
+        WHERE lower(coalesce(status, '')) NOT IN ('completed', 'cancelled')
+        """
+    )
+    results = c.fetchall()
+    conn.close()
+    return results
+
+
 def log_event(ticket_id, event, details=""):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Access denied{% endblock %}
+{% block content %}
+<h1>Control panel</h1>
+<div class="card">
+  <p>Only <strong>staff</strong> and <strong>admin</strong> accounts can open the bot control panel.</p>
+  <div class="nav"><a href="/dashboard">Back to dashboard</a></div>
+</div>
+{% endblock %}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Account{% endblock %}</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --text:#e7ecf3; --muted:#8b9cb3; --accent:#5b8cff; --danger:#e85d6f; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    main { max-width: 420px; margin: 0 auto; padding: 2.5rem 1.25rem; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 1.25rem; }
+    .card { background: var(--card); border-radius: 12px; padding: 1.5rem; border: 1px solid rgba(255,255,255,.06); }
+    label { display:block; font-size: .85rem; color: var(--muted); margin-bottom: .35rem; }
+    input { width:100%; padding: .65rem .75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background:#0c1016; color:var(--text); margin-bottom:1rem; }
+    button, .btn { display:inline-block; width:100%; padding: .7rem 1rem; border:0; border-radius: 8px; background: var(--accent); color:#fff; font-weight:600; cursor:pointer; text-align:center; text-decoration:none; font-size:1rem; }
+    button.secondary { background: transparent; border: 1px solid rgba(255,255,255,.2); color: var(--text); margin-top:.5rem; }
+    .error { background: rgba(232,93,111,.12); color: #ffb4bd; padding: .75rem; border-radius: 8px; margin-bottom: 1rem; font-size: .9rem; }
+    .nav { margin-top: 1.25rem; text-align: center; }
+    .nav a { color: var(--accent); text-decoration: none; font-size: .9rem; }
+    dl { margin:0; }
+    dt { color: var(--muted); font-size: .8rem; margin-top: .85rem; }
+    dd { margin: .2rem 0 0; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
